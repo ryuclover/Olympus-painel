@@ -23,6 +23,9 @@ def disparar_busca():
     categoria = (corpo.get("categoria") or "").strip()
     localizacao_raw = (corpo.get("localizacao") or "").strip()
     raio_km = int(corpo.get("raio_km") or 20)
+    busca_rapida = bool(corpo.get("busca_rapida", True))
+    busca_super_rapida = bool(corpo.get("busca_super_rapida", False))
+    ignorar_fixos = bool(corpo.get("ignorar_fixos", False))
 
     if not categoria:
         categoria = "estabelecimentos comerciais"
@@ -41,9 +44,13 @@ def disparar_busca():
             localizacao=info_loc["localizacao"],
             cidade=info_loc["cidade"],
             raio_km=raio_km,
+            busca_rapida=busca_rapida,
+            busca_super_rapida=busca_super_rapida,
+            ignorar_fixos=ignorar_fixos,
         )
     except ValueError as exc:
         return jsonify({"erro": str(exc)}), 409
+
 
     return jsonify({"ok": True, "localizacao_resolvida": info_loc["localizacao"]})
 
@@ -56,16 +63,13 @@ def status_busca():
 
 
 
-# ---------------------------------------------------------------------------
-# Configuracoes / info
-# ---------------------------------------------------------------------------
 @bp.get("/api/info")
 def info():
-    import buscar as b
-    exe = b._caminho_scraper()
     import os
+    from pathlib import Path
+    scraper_path = Path(__file__).parent / "scraper_google_maps" / "cli.py"
     return jsonify({
-        "scraper_disponivel": exe is not None,
-        "scraper_path": str(exe) if exe else None,
+        "scraper_disponivel": scraper_path.exists(),
+        "scraper_path": str(scraper_path) if scraper_path.exists() else None,
         "places_api_configurada": bool(os.environ.get("GOOGLE_PLACES_API_KEY")),
     })

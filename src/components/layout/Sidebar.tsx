@@ -1,8 +1,8 @@
-﻿import { NavLink } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import {
   Search, LayoutDashboard, Users, MessageSquare, GitBranch,
   BookUser, CheckSquare, BarChart2, Zap, FileText, Settings,
-  HelpCircle, Headphones, Flame
+  HelpCircle, Headphones, Flame, FileSignature
 } from "lucide-react";
 
 const NAV = [
@@ -17,6 +17,7 @@ const NAV = [
   { to: "/automacoes", icon: Zap, label: "Automacoes" },
   { to: "/modelos", icon: FileText, label: "Modelos" },
   { to: "/configuracoes", icon: Settings, label: "Configuracoes" },
+  { to: "/contratos", icon: FileSignature, label: "Contratos" },
 ];
 
 export function Sidebar() {

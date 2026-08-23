@@ -154,91 +154,10 @@ def salvar_proxies_scraper():
     dados = request.json or {}
     proxies = str(dados.get("proxies", "")).strip()
     db.salvar_config("scraper_proxies", proxies)
-    return jsonify({"ok": True, "configurado": bool(proxies)})
-
-
-@bp.route("/api/templates")
-def listar_templates():
-    """Lista templates de mensagem, com filtro opcional por nicho via query string."""
-    nicho = request.args.get("nicho", "").strip()
-
-    sql = "SELECT * FROM templates_mensagem"
-    parametros = []
-    if nicho:
-        sql += " WHERE nicho = ?"
-        parametros.append(nicho)
-    sql += " ORDER BY vezes_usado DESC, atualizado_em DESC"
-
-    conexao = db.conectar()
-    try:
-        templates = [db.linha_para_dict(l) for l in conexao.execute(sql, parametros).fetchall()]
-    finally:
-        conexao.close()
-
-    return jsonify({"templates": templates})
-
-
-@bp.route("/api/templates", methods=["POST"])
-def criar_template():
-    dados = request.json or {}
-    titulo = str(dados.get("titulo", "")).strip()
     texto = str(dados.get("texto", "")).strip()
     nicho = str(dados.get("nicho", "")).strip() or None
 
-    if not titulo:
-        return jsonify({"erro": "informe um título para o template"}), 400
-    if len(titulo) > MAX_CARACTERES_TITULO_TEMPLATE:
-        return jsonify({"erro": f"título muito longo (máximo {MAX_CARACTERES_TITULO_TEMPLATE} caracteres)"}), 400
-    if not texto:
-        return jsonify({"erro": "informe o texto do template"}), 400
-    if len(texto) > MAX_CARACTERES_TEXTO_TEMPLATE:
-        return jsonify({"erro": f"texto muito longo (máximo {MAX_CARACTERES_TEXTO_TEMPLATE} caracteres)"}), 400
 
-    agora = datetime.now().isoformat(timespec="seconds")
-    conexao = db.conectar()
-    try:
-        cursor = conexao.execute(
-            "INSERT INTO templates_mensagem (titulo, texto, nicho, vezes_usado, criado_em, atualizado_em) "
-            "VALUES (?, ?, ?, 0, ?, ?)",
-            (titulo, texto, nicho, agora, agora),
-        )
-        conexao.commit()
-        template_id = cursor.lastrowid
-    finally:
-        conexao.close()
-
-    return jsonify({"ok": True, "id": template_id})
-
-
-@bp.route("/api/templates/<int:template_id>", methods=["PUT"])
-def atualizar_template(template_id):
-    dados = request.json or {}
-    titulo = str(dados.get("titulo", "")).strip()
-    texto = str(dados.get("texto", "")).strip()
-    nicho = str(dados.get("nicho", "")).strip() or None
-
-    if not titulo:
-        return jsonify({"erro": "informe um título para o template"}), 400
-    if len(titulo) > MAX_CARACTERES_TITULO_TEMPLATE:
-        return jsonify({"erro": f"título muito longo (máximo {MAX_CARACTERES_TITULO_TEMPLATE} caracteres)"}), 400
-    if not texto:
-        return jsonify({"erro": "informe o texto do template"}), 400
-    if len(texto) > MAX_CARACTERES_TEXTO_TEMPLATE:
-        return jsonify({"erro": f"texto muito longo (máximo {MAX_CARACTERES_TEXTO_TEMPLATE} caracteres)"}), 400
-
-    conexao = db.conectar()
-    try:
-        cursor = conexao.execute(
-            "UPDATE templates_mensagem SET titulo = ?, texto = ?, nicho = ?, atualizado_em = ? WHERE id = ?",
-            (titulo, texto, nicho, datetime.now().isoformat(timespec="seconds"), template_id),
-        )
-        conexao.commit()
-        if cursor.rowcount == 0:
-            return jsonify({"erro": "template não encontrado"}), 404
-    finally:
-        conexao.close()
-
-    return jsonify({"ok": True})
 
 
 @bp.route("/api/templates/<int:template_id>", methods=["DELETE"])

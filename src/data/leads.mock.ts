@@ -1,4 +1,4 @@
-﻿export type LeadStatus = "quente" | "morno" | "frio" | "contatado" | "qualificado" | "fechado";
+export type LeadStatus = "novo" | "quente" | "morno" | "frio" | "contatado" | "qualificado" | "fechado";
 export type KanbanStage = "novo" | "qualificado" | "contatado" | "interessado" | "fechado";
 
 export interface Lead {
@@ -26,8 +26,12 @@ export interface Lead {
   avaliacaoDistribuicao: { estrelas: number; quantidade: number }[];
   tags: string[];
   observacao?: string;
+  valorFechado?: number;
   lat: number;
   lng: number;
+  fotoUrl?: string;
+  tipoTelefone?: string;
+  temWhatsapp?: boolean;
 }
 
 export const LEADS_MOCK: Lead[] = [

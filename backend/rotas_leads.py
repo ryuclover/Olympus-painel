@@ -5,9 +5,12 @@ import csv
 import io
 import json
 import logging
+import os
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from flask import Blueprint, Response, jsonify, request
+from werkzeug.utils import secure_filename
 
 import db
 import diagnostico
@@ -130,6 +133,7 @@ def listar_leads():
     followup_filtro = request.args.get("followup", "").strip()
     if followup_filtro not in ("", "vencido"):
         return jsonify({"erro": f"followup inválido: {followup_filtro} (use 'vencido' ou omita)"}), 400
+    desde = request.args.get("desde", "").strip()  # ISO 8601 - filtra leads atualizados desde essa data
 
     try:
         limit = int(request.args.get("limit", LIMITE_PADRAO_LEADS))
@@ -147,8 +151,11 @@ def listar_leads():
     parametros = []
 
     if status:
-        condicoes.append("status = ?")
-        parametros.append(status)
+        if status == "em_andamento":
+            condicoes.append("status IN ('contatado', 'respondeu', 'qualificado')")
+        else:
+            condicoes.append("status = ?")
+            parametros.append(status)
     else:
         # por padrão, esconde os leads ignorados da lista principal
         # (só aparecem se o usuário filtrar por status="ignorado" explicitamente)
@@ -172,6 +179,9 @@ def listar_leads():
     if followup_filtro == "vencido":
         condicoes.append("proximo_followup IS NOT NULL AND proximo_followup <= ?")
         parametros.append(date.today().isoformat())
+    if desde:
+        condicoes.append("atualizado_em >= ?")
+        parametros.append(desde)
 
     sql = "SELECT * FROM leads"
     if condicoes:
@@ -184,6 +194,7 @@ def listar_leads():
         sql += " ORDER BY visto_em DESC, nota DESC"
     sql += " LIMIT ? OFFSET ?"
     parametros_com_paginacao = [*parametros, limit + 1, offset]
+    logger.info(f"TEST API CALL -> status_param: '{status}', sql: {sql}, args: {parametros_com_paginacao}")
 
     if not db.CAMINHO_BANCO.exists():
         return jsonify({"leads": [], "tem_mais": False})
@@ -199,6 +210,7 @@ def listar_leads():
 
     return jsonify({
         "leads": [_enriquecer_lead_para_resposta(db.linha_para_dict(linha)) for linha in linhas],
+        "total": len(linhas),
         "tem_mais": tem_mais,
     })
 
@@ -885,42 +897,228 @@ def _validar_busca_por_mapa(corpo):
 
     return ("\n".join(nichos), areas), None
 
+# Rotas /api/buscar e /api/buscar/status migradas para rotas.py (novo scraper modular)
 
-@bp.route("/api/buscar", methods=["POST"])
-def disparar_busca():
-    """Dispara a busca no Maps em um de dois modos:
-    - texto (legado): {"queries": "nicho em cidade\\n..."}
-    - mapa: {"nichos": [...], "areas": [{lat, lng, raio_m, rotulo}, ...]} -
-      o scraper roda uma vez por área, geolocalizado no pino com o raio escolhido."""
-    corpo = request.json or {}
-    modo_mapa = "areas" in corpo or "nichos" in corpo
 
-    if modo_mapa:
-        resultado, erro = _validar_busca_por_mapa(corpo)
-        if erro:
-            return erro
-        queries_texto, areas = resultado
-    else:
-        queries_texto, erro = _validar_busca_por_texto(corpo)
-        if erro:
-            return erro
-        areas = None
-
-    if not jobs.tentar_reservar_busca():
-        return jsonify({"erro": "já existe uma busca em andamento"}), 409
-
+def _geocodificar_endereco(endereco: str) -> tuple[float, float]:
+    """Geocodifica um endereço usando Nominatim (OpenStreetMap). Gratuito."""
+    import urllib.request
+    import urllib.parse
     try:
-        # queries.txt é escrito a cada busca - vai pra área de dados (gravável)
-        caminho_queries = paths.caminho_dados("queries.txt", criar_pai=True)
-        caminho_queries.write_text(queries_texto + "\n", encoding="utf-8")
-        jobs.iniciar_thread_busca(areas)
+        url = (
+            "https://nominatim.openstreetmap.org/search"
+            f"?q={urllib.parse.quote(endereco)}&format=json&limit=1&countrycodes=br"
+        )
+        req = urllib.request.Request(url, headers={"User-Agent": "OlympusPainel/1.0"})
+        resp = urllib.request.urlopen(req, timeout=6)
+        data = json.loads(resp.read())
+        if data:
+            return float(data[0]["lat"]), float(data[0]["lon"])
     except Exception:
-        jobs.liberar_busca()  # senão a flag ficaria presa em True pra sempre
-        raise
+        pass
+    return 0.0, 0.0
 
+
+@bp.route("/api/leads/geocodificar", methods=["POST"])
+def geocodificar_sem_coords():
+    """Geocodifica em batch todos os leads sem lat/lng usando Nominatim (OSM). Pode demorar."""
+    import time as _time
+    conexao = db.conectar()
+    try:
+        sem_coords = conexao.execute(
+            "SELECT place_id, endereco, cidade, estado FROM leads "
+            "WHERE lat IS NULL OR lat = 0 OR lng IS NULL OR lng = 0"
+        ).fetchall()
+    finally:
+        conexao.close()
+
+    atualizados = 0
+    for row in sem_coords:
+        endereco = " ".join(filter(None, [row["endereco"], row["cidade"], row["estado"]]))
+        if not endereco.strip():
+            continue
+        lat, lng = _geocodificar_endereco(endereco)
+        if lat == 0.0 and lng == 0.0:
+            continue
+        conexao = db.conectar()
+        try:
+            conexao.execute(
+                "UPDATE leads SET lat = ?, lng = ? WHERE place_id = ?",
+                (lat, lng, row["place_id"])
+            )
+            conexao.commit()
+            atualizados += 1
+        finally:
+            conexao.close()
+        _time.sleep(1.1)  # Nominatim: máx 1 req/s
+
+    return jsonify({"ok": True, "atualizados": atualizados, "total": len(sem_coords)})
+
+
+UPLOAD_FOLDER_PATH = Path(__file__).parent / "uploads"
+UPLOAD_FOLDER_PATH.mkdir(exist_ok=True)
+
+
+@bp.route("/api/leads/<place_id>/fechamento", methods=["GET", "POST"])
+def fechamento_lead(place_id):
+    if request.method == "GET":
+        conexao = db.conectar()
+        try:
+            lead = conexao.execute(
+                "SELECT valor_fechado, data_fechamento, notas_fechamento FROM leads WHERE place_id = ?",
+                (place_id,)
+            ).fetchone()
+            if not lead:
+                return jsonify({"erro": "lead não encontrado"}), 404
+            lead_dict = dict(lead)
+
+            linhas = conexao.execute(
+                "SELECT id, tipo, nome_arquivo, nome_original, criado_em FROM arquivos_lead WHERE place_id = ? ORDER BY criado_em DESC",
+                (place_id,)
+            ).fetchall()
+        finally:
+            conexao.close()
+
+        arquivos = []
+        for l in linhas:
+            d = dict(l)
+            d["url"] = f"/uploads/{d['nome_arquivo']}"
+            d.setdefault("nome_original", d["nome_arquivo"])
+            arquivos.append(d)
+
+        return jsonify({
+            "valor_fechado": lead_dict.get("valor_fechado") or 0,
+            "data_fechamento": lead_dict.get("data_fechamento"),
+            "notas_fechamento": lead_dict.get("notas_fechamento"),
+            "arquivos": arquivos,
+        })
+
+    # POST — salva detalhes do fechamento
+    dados = request.get_json() or {}
+    agora = datetime.now().isoformat(timespec="seconds")
+    atualizacoes = {}
+
+    if "valor_fechado" in dados:
+        try:
+            atualizacoes["valor_fechado"] = float(dados["valor_fechado"])
+        except (TypeError, ValueError):
+            return jsonify({"erro": "valor_fechado inválido"}), 400
+    if "data_fechamento" in dados:
+        atualizacoes["data_fechamento"] = dados["data_fechamento"] or None
+    if "notas_fechamento" in dados:
+        txt = dados["notas_fechamento"]
+        atualizacoes["notas_fechamento"] = str(txt)[:2000] if txt else None
+
+    if not atualizacoes:
+        return jsonify({"erro": "nenhum campo enviado"}), 400
+
+    atualizacoes["atualizado_em"] = agora
+    set_clause = ", ".join(f"{k} = ?" for k in atualizacoes)
+    valores = list(atualizacoes.values()) + [place_id]
+
+    conexao = db.conectar()
+    try:
+        rowcount = conexao.execute(
+            f"UPDATE leads SET {set_clause} WHERE place_id = ?", valores
+        ).rowcount
+        conexao.commit()
+    finally:
+        conexao.close()
+
+    if rowcount == 0:
+        return jsonify({"erro": "lead não encontrado"}), 404
     return jsonify({"ok": True})
 
 
-@bp.route("/api/buscar/status")
-def status_busca():
-    return jsonify(jobs.estado_busca)
+@bp.route("/api/leads/<place_id>/arquivos", methods=["GET"])
+def listar_arquivos(place_id):
+    tipo = request.args.get("tipo", "").strip()
+    conexao = db.conectar()
+    try:
+        if tipo:
+            linhas = conexao.execute(
+                "SELECT id, tipo, nome_arquivo, nome_original, criado_em FROM arquivos_lead WHERE place_id = ? AND tipo = ? ORDER BY criado_em DESC",
+                (place_id, tipo)
+            ).fetchall()
+        else:
+            linhas = conexao.execute(
+                "SELECT id, tipo, nome_arquivo, nome_original, criado_em FROM arquivos_lead WHERE place_id = ? ORDER BY criado_em DESC",
+                (place_id,)
+            ).fetchall()
+    finally:
+        conexao.close()
+
+    arquivos = []
+    for l in linhas:
+        d = dict(l)
+        d["url"] = f"/uploads/{d['nome_arquivo']}"
+        d.setdefault("nome_original", d["nome_arquivo"])
+        arquivos.append(d)
+    return jsonify({"arquivos": arquivos})
+
+
+@bp.route("/api/leads/<place_id>/arquivos", methods=["POST"])
+def upload_arquivo(place_id):
+    tipo = request.form.get("tipo")
+    if tipo not in ("contrato", "print"):
+        return jsonify({"erro": "tipo inválido (deve ser 'contrato' ou 'print')"}), 400
+
+    if "arquivo" not in request.files:
+        return jsonify({"erro": "nenhum arquivo enviado"}), 400
+
+    arquivo = request.files["arquivo"]
+    if not arquivo.filename:
+        return jsonify({"erro": "nome de arquivo vazio"}), 400
+
+    nome_original = arquivo.filename
+    ts = int(datetime.now().timestamp())
+    safe_name = f"{place_id}_{ts}_{secure_filename(nome_original)}"
+    caminho_destino = str(UPLOAD_FOLDER_PATH / safe_name)
+    arquivo.save(caminho_destino)
+
+    agora = datetime.now().isoformat(timespec="seconds")
+    conexao = db.conectar()
+    try:
+        cursor = conexao.execute(
+            "INSERT INTO arquivos_lead (place_id, tipo, nome_arquivo, nome_original, criado_em) VALUES (?, ?, ?, ?, ?)",
+            (place_id, tipo, safe_name, nome_original, agora)
+        )
+        conexao.commit()
+        arquivo_id = cursor.lastrowid
+    finally:
+        conexao.close()
+
+    return jsonify({
+        "ok": True,
+        "id": arquivo_id,
+        "tipo": tipo,
+        "nome_arquivo": safe_name,
+        "nome_original": nome_original,
+        "url": f"/uploads/{safe_name}",
+        "criado_em": agora,
+    })
+
+
+@bp.route("/api/leads/arquivos/<int:id_arquivo>", methods=["DELETE"])
+def excluir_arquivo(id_arquivo):
+    conexao = db.conectar()
+    try:
+        arquivo = conexao.execute(
+            "SELECT nome_arquivo FROM arquivos_lead WHERE id = ?",
+            (id_arquivo,)
+        ).fetchone()
+        if not arquivo:
+            return jsonify({"erro": "arquivo não encontrado"}), 404
+
+        caminho = UPLOAD_FOLDER_PATH / arquivo["nome_arquivo"]
+        conexao.execute("DELETE FROM arquivos_lead WHERE id = ?", (id_arquivo,))
+        conexao.commit()
+    finally:
+        conexao.close()
+
+    try:
+        caminho.unlink(missing_ok=True)
+    except Exception:
+        pass
+    return jsonify({"ok": True})
+

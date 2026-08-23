@@ -9,8 +9,16 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-CAMINHO_BANCO = Path(__file__).parent / "olympus.db"
+def get_data_dir():
+    appdata = os.environ.get('APPDATA')
+    if appdata:
+        path = Path(appdata) / "OlympusPainel"
+    else:
+        path = Path.home() / ".OlympusPainel"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
+CAMINHO_BANCO = get_data_dir() / "olympus.db"
 
 def conectar() -> sqlite3.Connection:
     conn = sqlite3.connect(CAMINHO_BANCO, timeout=10, check_same_thread=False)
@@ -43,6 +51,28 @@ def preparar_banco(conn: sqlite3.Connection):
             status          TEXT DEFAULT 'novo',
             tags            TEXT DEFAULT '',
             observacao      TEXT DEFAULT '',
+            valor_fechado   REAL DEFAULT 0,
+            nicho           TEXT,
+            whatsapp_link   TEXT,
+            observacoes     TEXT,
+            nota            REAL,
+            visto_em        INTEGER DEFAULT 0,
+            proximo_followup TEXT,
+            follow_ups_enviados INTEGER DEFAULT 0,
+            ultimo_followup_em TEXT,
+            mensagem_gerada TEXT,
+            site_problemas  TEXT,
+            site_checklist  TEXT,
+            query_origem    TEXT,
+            instagram_url   TEXT,
+            site_url        TEXT,
+            num_avaliacoes  INTEGER DEFAULT 0,
+            lead_dificil    BOOLEAN DEFAULT 0,
+            data_fechamento TEXT,
+            notas_fechamento TEXT,
+            foto_url        TEXT,
+            tipo_telefone   TEXT,
+            tem_whatsapp    INTEGER DEFAULT 0,
             criado_em       TEXT DEFAULT (datetime('now')),
             atualizado_em   TEXT DEFAULT (datetime('now'))
         );
@@ -60,8 +90,73 @@ def preparar_banco(conn: sqlite3.Connection):
             valor         TEXT,
             atualizado_em TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS historico_status (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            place_id        TEXT,
+            status_anterior TEXT,
+            status_novo     TEXT,
+            alterado_em     TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS mensagens_template (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            titulo          TEXT NOT NULL,
+            mensagem        TEXT NOT NULL,
+            is_padrao       BOOLEAN DEFAULT 0,
+            criado_em       TEXT DEFAULT (datetime('now')),
+            atualizado_em   TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS arquivos_lead (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            place_id        TEXT NOT NULL,
+            tipo            TEXT NOT NULL,
+            nome_arquivo    TEXT NOT NULL,
+            nome_original   TEXT,
+            criado_em       TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS contratos (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            cliente_nome    TEXT,
+            projeto_nome    TEXT,
+            valor_total     REAL,
+            status          TEXT DEFAULT 'rascunho',
+            dados_json      TEXT,
+            criado_em       TEXT DEFAULT (datetime('now')),
+            atualizado_em   TEXT DEFAULT (datetime('now'))
+        );
     """)
+
+    # Migrações seguras para bancos existentes
+    for col, tip in [
+        ("foto_url", "TEXT"),
+        ("tipo_telefone", "TEXT"),
+        ("tem_whatsapp", "INTEGER DEFAULT 0"),
+        ("data_fechamento", "TEXT"),
+        ("notas_fechamento", "TEXT"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE leads ADD COLUMN {col} {tip}")
+            conn.commit()
+        except Exception:
+            pass
+
+    # Inserir template padrão se a tabela estiver vazia
+    linhas = conn.execute("SELECT COUNT(*) as qtd FROM mensagens_template").fetchone()
+    if linhas and linhas["qtd"] == 0:
+        agora = datetime.now().isoformat(timespec="seconds")
+        conn.execute(
+            """
+            INSERT INTO mensagens_template (titulo, mensagem, is_padrao, criado_em, atualizado_em)
+            VALUES (?, ?, 1, ?, ?)
+            """,
+            ("Abordagem Padrão", "Olá! Vi a {nome} no Google e gostaria de conversar.", agora, agora)
+        )
+    
     conn.commit()
+
 
 CHAVES_CONFIG_VALIDAS = {
     "gemini": "GEMINI_API_KEY",
