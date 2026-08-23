@@ -75,8 +75,20 @@ function createMainWindow() {
     mainWindow.loadURL('http://localhost:9000');
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    const entryPoint = path.join(__dirname, '../dist/index.html');
+    mainWindow.loadFile(entryPoint).catch((error) => {
+      dialog.showErrorBox('Erro ao carregar Olympus Painel', `Não foi possível abrir a interface.\n\n${error.message}`);
+    });
   }
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error(`[Electron] Falha ao carregar ${validatedURL}: ${errorCode} ${errorDescription}`);
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[Electron] Processo de renderização encerrado:', details.reason);
+    dialog.showErrorBox('Interface encerrada', `A interface do aplicativo foi encerrada. Motivo: ${details.reason}`);
+  });
 
   mainWindow.once('ready-to-show', () => {
     // Fecha splash e mostra janela principal

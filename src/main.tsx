@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { HashRouter, Routes, Route } from 'react-router-dom'
 import { AppShell } from './components/layout/AppShell'
 import { BuscarLeads } from './pages/BuscarLeads'
 import { Dashboard } from './pages/Dashboard'
@@ -10,9 +10,18 @@ import { ContratoWizard } from './pages/contratos/ContratoWizard'
 import { ContratoView } from './pages/contratos/ContratoView'
 import './index.css'
 
+const originalFetch = window.fetch.bind(window)
+const apiOrigin = import.meta.env.DEV ? '' : 'http://127.0.0.1:9001'
+window.fetch = (input, init) => {
+  if (typeof input === 'string' && input.startsWith('/api/')) {
+    return originalFetch(`${apiOrigin}${input}`, init)
+  }
+  return originalFetch(input, init)
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <HashRouter>
       <Routes>
         <Route path="/" element={<AppShell />}>
           <Route index element={<BuscarLeads />} />
@@ -24,6 +33,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route path="*" element={<div style={{padding: 20}}><h2>Em construcao</h2></div>} />
         </Route>
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   </React.StrictMode>,
 )
