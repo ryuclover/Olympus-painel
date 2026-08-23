@@ -32,7 +32,7 @@ import rotas_templates
 import rotas_contratos
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:9000", "http://127.0.0.1:9000"])
+CORS(app, origins=["http://localhost:9000", "http://127.0.0.1:9000", "null"])
 app.register_blueprint(rotas.bp)
 app.register_blueprint(rotas_analytics.bp)
 app.register_blueprint(rotas_config.bp)
