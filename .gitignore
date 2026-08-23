@@ -32,3 +32,9 @@ __pycache__/
 *.sqlite3
 backend/.env
 backend/google-maps-scraper.exe
+
+# Desktop build outputs
+release/
+build/
+resources/backend/
+electron/icon.ico

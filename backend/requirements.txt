@@ -1,5 +1,7 @@
-﻿flask
+flask
 flask-cors
 waitress
 requests
 python-dotenv
+playwright
+pyinstaller

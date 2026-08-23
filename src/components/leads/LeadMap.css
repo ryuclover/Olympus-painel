@@ -1,0 +1,217 @@
+.lead-map-wrapper {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  gap: 8px;
+}
+
+.map-geocode-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: var(--radius, 8px);
+  font-size: 0.85rem;
+  color: var(--text-base, #e5e7eb);
+  flex-wrap: wrap;
+}
+
+.btn-geocode {
+  padding: 6px 14px;
+  background: #f59e0b;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.btn-geocode:hover:not(:disabled) {
+  background: #d97706;
+}
+
+.btn-geocode:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.geocode-success {
+  color: #10b981;
+  font-weight: 500;
+}
+
+.map-pin-counter {
+  font-size: 0.8rem;
+  color: var(--text-muted, #9ca3af);
+  padding: 2px 0;
+}
+
+.lead-map-container {
+
+  width: 100%;
+  height: 100%;
+  min-height: 400px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--border);
+  position: relative;
+  z-index: 1; /* keep below other modals */
+}
+
+/* Fix popup z-index */
+.leaflet-popup {
+  z-index: 1000;
+}
+
+.custom-leaflet-icon {
+  background: transparent;
+  border: none;
+  filter: drop-shadow(0px 2px 3px rgba(0,0,0,0.3));
+}
+
+.custom-leaflet-icon svg {
+  display: block;
+}
+
+.lead-map-popup .leaflet-popup-content-wrapper {
+  background: var(--bg-card);
+  color: var(--text-base);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--border);
+}
+
+.lead-map-popup .leaflet-popup-tip {
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+
+.lead-map-popup .popup-content {
+  padding: 4px;
+  min-width: 200px;
+}
+
+.lead-map-popup .popup-content h4 {
+  margin: 0 0 4px 0;
+  font-size: 0.95rem;
+  color: var(--text-base);
+  font-weight: 600;
+}
+
+.lead-map-popup .popup-cat {
+  margin: 0 0 8px 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.lead-map-popup .popup-rating {
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lead-map-popup .star {
+  color: #f59e0b;
+}
+
+.lead-map-popup .popup-phone {
+  font-size: 0.85rem;
+  margin: 0 0 12px 0;
+  color: var(--text-base);
+}
+
+.lead-map-popup .popup-photo-wrapper {
+  width: 100%;
+  height: 110px;
+  overflow: hidden;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  background: var(--bg-surface, #1e293b);
+}
+
+.lead-map-popup .popup-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.lead-map-popup .popup-phone-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.badge-wpp-tag {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 12px;
+}
+
+.badge-fixo-tag {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 12px;
+}
+
+.lead-map-popup .popup-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.lead-map-popup .popup-actions button,
+.lead-map-popup .popup-actions a {
+  flex: 1;
+  text-align: center;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.lead-map-popup .btn-details {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-base);
+}
+
+.lead-map-popup .btn-details:hover {
+  background: var(--bg-body);
+}
+
+.lead-map-popup .btn-whatsapp {
+  background: #10b981;
+  border: 1px solid #059669;
+  color: white;
+}
+
+.lead-map-popup .btn-whatsapp:hover {
+  background: #059669;
+}
+

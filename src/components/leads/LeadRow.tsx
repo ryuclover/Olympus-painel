@@ -1,4 +1,4 @@
-﻿import type { Lead } from "../../data/leads.mock";
+import type { Lead } from "../../data/leads.mock";
 import { ScoreBadge } from "./ScoreBadge";
 import { Star } from "lucide-react";
 
@@ -36,7 +36,16 @@ export function LeadRow({ lead, selected, checked, onCheck, onClick }: Props) {
           {lead.avaliacao.toFixed(1)}
         </span>
       </td>
-      <td className="lead-cell lead-cell-phone">{lead.telefone}</td>
+      <td className="lead-cell lead-cell-phone">
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span>{lead.telefone}</span>
+          {lead.temWhatsapp ? (
+            <span className="badge-wpp-tag" style={{ fontSize: "0.65rem", padding: "1px 4px" }}>WPP</span>
+          ) : lead.tipoTelefone === "fixo" ? (
+            <span className="badge-fixo-tag" style={{ fontSize: "0.65rem", padding: "1px 4px" }}>Fixo</span>
+          ) : null}
+        </div>
+      </td>
       <td className="lead-cell">
         <span className="lead-score">{lead.score}</span>
       </td>

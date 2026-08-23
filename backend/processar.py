@@ -1081,21 +1081,40 @@ def verificar_site(url: Optional[str]) -> str:
     if not url.startswith(('http://', 'https://')): url = 'https://' + url
     for construtor in _CONSTRUTORES:
         if construtor in url: return 'construtor'
-    try:
-        ctx = ssl.create_default_context()
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}, method='HEAD')
-        with urllib.request.urlopen(req, timeout=6, context=ctx) as resp:
-            return 'ok' if resp.status < 400 else 'fora_do_ar'
-    except ssl.SSLError:
-        return 'sem_https'
-    except Exception:
+    
+    def _tentar(url_alvo: str, method: str = 'HEAD') -> int:
+        """Retorna o status HTTP ou -1 em caso de erro."""
         try:
-            url_http = url.replace('https://', 'http://')
-            req2 = urllib.request.Request(url_http, headers={'User-Agent': 'Mozilla/5.0'}, method='HEAD')
-            with urllib.request.urlopen(req2, timeout=6) as resp:
-                return 'sem_https' if resp.status < 400 else 'fora_do_ar'
+            ctx = ssl.create_default_context()
+            req = urllib.request.Request(url_alvo, headers={'User-Agent': 'Mozilla/5.0'}, method=method)
+            with urllib.request.urlopen(req, timeout=6, context=ctx) as resp:
+                return resp.status
+        except ssl.SSLError:
+            return -2  # indica erro SSL especificamente
         except Exception:
-            return 'fora_do_ar'
+            return -1
+
+    # Tenta HTTPS com HEAD
+    status = _tentar(url, 'HEAD')
+    
+    # Muitos servidores brasileiros bloqueiam HEAD (retornam 405) — fallback para GET
+    if status == 405:
+        status = _tentar(url, 'GET')
+    
+    if status == -2:
+        return 'sem_https'
+    
+    if status < 0:
+        # HEAD falhou: tenta HTTP puro
+        url_http = url.replace('https://', 'http://')
+        status_http = _tentar(url_http, 'HEAD')
+        if status_http == 405:
+            status_http = _tentar(url_http, 'GET')
+        if 0 < status_http < 400:
+            return 'sem_https'
+        return 'fora_do_ar'
+    
+    return 'ok' if status < 400 else 'fora_do_ar'
 
 def calcular_score_basico(avaliacao: float, total_avaliacoes: int, site_status: str) -> int:
     nota = min(avaliacao / 5.0, 1.0) * 40
@@ -1109,21 +1128,39 @@ def salvar_leads(conn: sqlite3.Connection, leads: list[dict]) -> int:
     salvos = 0
     for lead in leads:
         try:
+            # Garante defaults para novos campos
+            lead.setdefault("foto_url", None)
+            lead.setdefault("tipo_telefone", "nenhum")
+            lead.setdefault("tem_whatsapp", 0)
+            lead.setdefault("observacoes", "")
+            lead.setdefault("observacao", "")
+
             conn.execute('''
                 INSERT INTO leads (
                     place_id, nome, categoria, avaliacao, total_avaliacoes,
                     telefone, endereco, cidade, estado, site, site_status,
-                    lat, lng, score, status, atualizado_em
+                    lat, lng, score, status, foto_url, tipo_telefone, tem_whatsapp,
+                    observacoes, observacao, atualizado_em
                 ) VALUES (
                     :place_id, :nome, :categoria, :avaliacao, :total_avaliacoes,
                     :telefone, :endereco, :cidade, :estado, :site, :site_status,
-                    :lat, :lng, :score, 'novo', datetime('now')
+                    :lat, :lng, :score, 'novo', :foto_url, :tipo_telefone, :tem_whatsapp,
+                    :observacoes, :observacao, datetime('now')
                 )
                 ON CONFLICT(place_id) DO UPDATE SET
+                    lat = COALESCE(excluded.lat, leads.lat),
+                    lng = COALESCE(excluded.lng, leads.lng),
+                    foto_url = COALESCE(excluded.foto_url, leads.foto_url),
+                    tipo_telefone = COALESCE(excluded.tipo_telefone, leads.tipo_telefone),
+                    tem_whatsapp = COALESCE(excluded.tem_whatsapp, leads.tem_whatsapp),
+                    telefone = COALESCE(excluded.telefone, leads.telefone),
+                    observacoes = CASE WHEN leads.observacoes IS NULL OR leads.observacoes = '' THEN excluded.observacoes ELSE leads.observacoes END,
+                    observacao = CASE WHEN leads.observacao IS NULL OR leads.observacao = '' THEN excluded.observacao ELSE leads.observacao END,
                     atualizado_em = datetime('now')
             ''', lead)
             salvos += 1
         except Exception as e:
-            pass
+            logger.warning("Erro ao salvar lead %s: %s", lead.get("nome"), e)
     conn.commit()
     return salvos
+
