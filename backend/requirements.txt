@@ -3,5 +3,6 @@ flask-cors
 waitress
 requests
 python-dotenv
+fpdf2
 playwright
 pyinstaller

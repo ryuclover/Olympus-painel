@@ -10,16 +10,37 @@ const BACKEND_PORT = 9001;
 const isDev = process.env.NODE_ENV === 'development';
 
 // ─── Aguarda o backend responder ─────────────────────────────────────────────
-function waitForBackend(maxRetries = 40, interval = 500) {
+function waitForBackend(maxRetries = 180, interval = 500) {
   return new Promise((resolve, reject) => {
     let retries = 0;
+    let settled = false;
+
+    const fail = (error) => {
+      if (!settled) {
+        settled = true;
+        reject(error);
+      }
+    };
+
+    if (backendProcess) {
+      backendProcess.once('close', (code) => {
+        if (!settled) {
+          fail(new Error(`O backend encerrou antes de ficar disponível (código ${code ?? 'desconhecido'}).`));
+        }
+      });
+    }
+
     function check() {
       const req = http.get(`http://127.0.0.1:${BACKEND_PORT}/api/contratos`, (res) => {
-        resolve();
+        res.resume();
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
       });
       req.on('error', () => {
         if (retries >= maxRetries) {
-          reject(new Error('Backend não respondeu.'));
+          fail(new Error('Backend não respondeu dentro do tempo esperado.'));
         } else {
           retries++;
           setTimeout(check, interval);
@@ -28,7 +49,7 @@ function waitForBackend(maxRetries = 40, interval = 500) {
       req.setTimeout(300, () => {
         req.destroy();
         if (retries >= maxRetries) {
-          reject(new Error('Timeout do backend.'));
+          fail(new Error('Timeout aguardando o backend.'));
         } else {
           retries++;
           setTimeout(check, interval);
@@ -140,10 +161,22 @@ function startBackend() {
       `O servidor interno não pôde ser iniciado.\n\n${err.message}\n\nTente reinstalar o aplicativo.`
     );
   });
+
+  backendProcess.on('close', (code) => {
+    if (code !== 0) {
+      console.error(`[Electron] Backend encerrou com código ${code}.`);
+    }
+  });
 }
 
 // ─── Fluxo principal ─────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
+  const gotLock = app.requestSingleInstanceLock();
+  if (!gotLock) {
+    app.quit();
+    return;
+  }
+
   createSplash();
   startBackend();
 
@@ -153,8 +186,13 @@ app.whenReady().then(async () => {
     } catch (err) {
       dialog.showErrorBox(
         'Servidor não disponível',
-        'O servidor interno não iniciou a tempo. Tente reabrir o aplicativo.'
+        `O servidor interno não ficou disponível.\n\n${err.message}\n\nFeche outra instância do Olympus Painel e tente novamente.`
       );
+      if (backendProcess && !backendProcess.killed) {
+        backendProcess.kill();
+      }
+      app.quit();
+      return;
     }
   } else {
     // Em dev, aguarda 1s apenas para dar tempo ao vite

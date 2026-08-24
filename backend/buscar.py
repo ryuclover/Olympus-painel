@@ -21,6 +21,7 @@ from typing import Optional
 import requests
 
 import processar
+from paths import caminho_recurso
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +175,9 @@ def _buscar_via_scraper(
 ) -> list[dict]:
     """Chama o scraper com coordenadas centrais, zoom, multi-abas e filtros inteligentes."""
     os.environ["SCRAPER_HEADLESS"] = "true"
+    browser_path = caminho_recurso("playwright-browsers")
+    if browser_path.exists():
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(browser_path)
 
     try:
         from scraper_google_maps.core import scrape_google_maps
@@ -245,6 +249,7 @@ def _buscar_via_scraper(
 
     finally:
         os.environ.pop("SCRAPER_HEADLESS", None)
+        os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
 
     # Mapeia, classifica WhatsApp e valida distância pelo raio
     leads = []
@@ -391,11 +396,10 @@ def _thread_busca(
         if center_lat and center_lng:
             logger.info("Localizacao '%s' geocodificada: (%.4f, %.4f)", localizacao, center_lat, center_lng)
 
-        scraper_disponivel = (Path(__file__).parent / "scraper_google_maps" / "cli.py").exists()
         api_key = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 
-        if scraper_disponivel:
-            logger.info("Usando scraper Python com suporte a raio (%d km, rapida=%s, sem_fixo=%s)", raio_km, busca_rapida, ignorar_fixos)
+        try:
+            logger.info("Usando scraper Python interno (%d km, rapida=%s, sem_fixo=%s)", raio_km, busca_rapida, ignorar_fixos)
             raw_leads = _buscar_via_scraper(
                 categoria=categoria,
                 localizacao=localizacao,
@@ -406,15 +410,13 @@ def _thread_busca(
                 busca_super_rapida=busca_super_rapida,
                 ignorar_fixos=ignorar_fixos
             )
-        elif api_key:
-            logger.info("Usando Google Places API")
-            _atualizar_estado(mensagem="Buscando via Google Places API...")
+        except Exception as erro_scraper:
+            logger.exception("scraper interno falhou")
+            if not api_key:
+                raise RuntimeError(f"O scraper local falhou: {erro_scraper}") from erro_scraper
+            logger.warning("Scraper interno falhou; usando Google Places API configurada")
+            _atualizar_estado(mensagem="Scraper local indisponível; buscando via Google Places API...")
             raw_leads = _buscar_via_places_api(query, cidade, raio_m)
-        else:
-            raise RuntimeError(
-                "Nenhuma fonte de busca disponivel. "
-                "Configure GOOGLE_PLACES_API_KEY no .env ou crie o scraper."
-            )
 
         _atualizar_estado(total=len(raw_leads), mensagem=f"Analisando {len(raw_leads)} empresas encontradas...")
         logger.info("%d empresas encontradas, analisando presenca digital e sites...", len(raw_leads))

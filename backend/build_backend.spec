@@ -27,17 +27,19 @@ hidden_imports = [
     # Utilitários
     'requests',
     'requests.adapters',
-    'python_dotenv',
+    'fpdf',
     'dotenv',
     'sqlite3',
     'json',
     'logging',
     'pathlib',
     'datetime',
-    # Playwright (async)
+    # Playwright (async e sync)
     'playwright',
     'playwright.sync_api',
     'playwright.async_api',
+    'playwright._impl._driver',
+    'playwright._impl._transport',
     'asyncio',
     # Módulos internos (ajustar conforme necessário)
     'rotas',
@@ -53,6 +55,9 @@ hidden_imports = [
     'processar',
     'telefone_util',
     'buscar',
+    'scraper_google_maps',
+    'scraper_google_maps.core',
+    'scraper_google_maps.extractor',
 ]
 
 a = Analysis(
@@ -60,6 +65,8 @@ a = Analysis(
     pathex=[str(Path('.').resolve())],
     binaries=[],
     datas=[
+        (str(Path(sys.prefix) / 'Lib' / 'site-packages' / 'playwright' / 'driver' / 'package' / '.local-browsers'), 'playwright-browsers'),
+        ('scraper_google_maps', 'scraper_google_maps'),
         # Inclui o arquivo .env se existir
         ('.env', '.') if Path('.env').exists() else ('', ''),
     ],
