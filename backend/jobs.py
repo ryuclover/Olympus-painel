@@ -7,6 +7,7 @@ jobs que estavam rodando ficam marcados como 'interrompido' (base pra retomada
 na fase 3).
 """
 
+import csv
 import json
 import logging
 import os
@@ -445,6 +446,43 @@ def _capturar_dados_brutos(arquivo_bruto, ambiente, area=None):
             return str(erro)
         estado_busca["empresas_encontradas"] += encontrados
         return None
+
+    queries = _ler_queries_da_busca()
+    if not queries:
+        return "Nenhuma busca encontrada. Dispare a busca novamente."
+
+    try:
+        from scraper_google_maps.core import scrape_google_maps
+
+        browser_path = caminho_recurso("playwright-browsers")
+        if browser_path.exists():
+            ambiente["PLAYWRIGHT_BROWSERS_PATH"] = str(browser_path)
+
+        encontrados = []
+        for query in queries:
+            encontrados.extend(scrape_google_maps(
+                query=query,
+                max_leads=30,
+                center_lat=area["lat"] if area else None,
+                center_lng=area["lng"] if area else None,
+                zoom=zoom_para_raio(area["raio_m"]) if area else None,
+            ))
+
+        campos = ("title", "address", "phone", "website", "url", "review_rating", "review_count", "category")
+        with arquivo_bruto.open("w", newline="", encoding="utf-8") as arquivo:
+            escritor = csv.DictWriter(arquivo, fieldnames=campos)
+            escritor.writeheader()
+            conversoes = {
+                "title": "Title", "address": "Address", "phone": "Phone",
+                "website": "Website", "url": "Url", "review_rating": "Rating",
+                "review_count": "Reviews", "category": "Category",
+            }
+            escritor.writerows({campo: lead.get(conversoes[campo], "") for campo in campos} for lead in encontrados)
+        estado_busca["empresas_encontradas"] += len(encontrados)
+        return None
+    except Exception as erro:
+        logger.exception("scraper interno falhou")
+        return f"O scraper local não conseguiu acessar o Google Maps: {erro}"
 
     flags_geo = ()
     if area:
