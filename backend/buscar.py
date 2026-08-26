@@ -1,9 +1,9 @@
 """
-buscar.py — Logica de busca de leads no Google Maps.
+buscar.py — Logica de busca de leads no Google Maps de Alta Performance.
 
 Dois modos:
-  1. Scraper Python Playwright (sem custo, com suporte a raio, zoom e grid search)
-  2. Google Places API        (requer GOOGLE_PLACES_API_KEY no .env)
+  1. Scraper Python Playwright Concorrente (paralelismo multi-ponto, multi-termo, sem custo)
+  2. Google Places API                    (requer GOOGLE_PLACES_API_KEY no .env)
 """
 import csv
 import hashlib
@@ -16,11 +16,12 @@ import threading
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 import requests
 
 import processar
+import telefone_util
 from paths import caminho_recurso
 
 logger = logging.getLogger(__name__)
@@ -45,12 +46,32 @@ def _atualizar_estado(**kw):
 
 
 # ---------------------------------------------------------------------------
+# Nichos Comerciais para a opção "Todos os Comércios (Geral)"
+# ---------------------------------------------------------------------------
+NICHOS_COMERCIAIS_GERAL = [
+    "comércio",
+    "restaurante",
+    "supermercado",
+    "farmácia",
+    "padaria",
+    "oficina mecânica",
+    "loja de roupas",
+    "academia",
+    "clínica médica",
+    "barbearia",
+    "pet shop",
+    "lanchonete",
+    "auto peças",
+    "imobiliária",
+    "dentista"
+]
+
+
+# ---------------------------------------------------------------------------
 # Geocodificação & Cálculo Geográfico
 # ---------------------------------------------------------------------------
 def geocodificar_localizacao(localizacao: str) -> tuple[Optional[float], Optional[float]]:
-    """Obtém coordenadas (lat, lng) para um CEP ou texto de localização.
-    Tenta Nominatim (OSM) primeiro; se falhar, usa geocoding via Google Maps HTML
-    como fallback (sem API key, gratuito para poucos requests)."""
+    """Obtém coordenadas (lat, lng) para um CEP ou texto de localização."""
     if not localizacao or not localizacao.strip():
         return None, None
 
@@ -70,7 +91,7 @@ def geocodificar_localizacao(localizacao: str) -> tuple[Optional[float], Optiona
     except Exception as exc:
         logger.warning("Nominatim falhou para '%s': %s — tentando fallback Google...", localizacao, exc)
 
-    # --- Tentativa 2: Fallback via Google Maps sem API key (geocoding via suggest) ---
+    # --- Tentativa 2: Fallback via Google Maps sem API key ---
     try:
         q = urllib.parse.quote(f"{localizacao}, Brasil")
         url_g = f"https://maps.googleapis.com/maps/api/geocode/json?address={q}&region=br&language=pt-BR"
@@ -84,7 +105,7 @@ def geocodificar_localizacao(localizacao: str) -> tuple[Optional[float], Optiona
                             localizacao, loc["lat"], loc["lng"])
                 return loc["lat"], loc["lng"]
     except Exception as exc2:
-        logger.warning("Fallback Google geocoding tambem falhou para '%s': %s", localizacao, exc2)
+        logger.warning("Fallback Google geocoding falhou para '%s': %s", localizacao, exc2)
 
     return None, None
 
@@ -102,34 +123,31 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return R * c
 
 
-def calcular_zoom_por_raio(raio_km: float) -> int:
-    """Converte raio em KM para o nível de zoom ideal no Google Maps."""
-    if raio_km <= 3:
-        return 15  # Bairro / Hiper-local
-    elif raio_km <= 7:
-        return 14  # Região / Zona
+def calcular_zoom_por_raio(raio_km: int) -> int:
+    if raio_km <= 2:
+        return 16
+    elif raio_km <= 5:
+        return 15
+    elif raio_km <= 10:
+        return 14
     elif raio_km <= 15:
-        return 13  # Cidade média / Centro expandido
+        return 13
     elif raio_km <= 30:
-        return 12  # Cidade inteira
+        return 12
     elif raio_km <= 60:
-        return 11  # Região metropolitana
+        return 11
     elif raio_km <= 120:
-        return 10  # Macrorregião
+        return 10
     else:
         return 9
 
 
 def gerar_pontos_grade(center_lat: float, center_lng: float, raio_km: float) -> list[tuple[float, float, str]]:
-    """
-    Gera pontos de busca (Grid) para cobrir a área geográfica quando o raio for grande.
-    Retorna lista de (lat, lng, descricao).
-    """
+    """Gera pontos de busca (Grid) para cobrir a área geográfica quando o raio for grande."""
     pontos = [(center_lat, center_lng, "Centro")]
 
-    if raio_km > 8:
-        # Offset de ~55% do raio para 4 pontos cardeais
-        offset_km = raio_km * 0.55
+    if raio_km > 6:
+        offset_km = raio_km * 0.50
         d_lat = offset_km / 111.32
         cos_lat = math.cos(math.radians(center_lat))
         d_lng = offset_km / (111.32 * (cos_lat if abs(cos_lat) > 0.01 else 1.0))
@@ -139,8 +157,7 @@ def gerar_pontos_grade(center_lat: float, center_lng: float, raio_km: float) -> 
         pontos.append((center_lat, center_lng + d_lng, "Leste"))
         pontos.append((center_lat, center_lng - d_lng, "Oeste"))
 
-    if raio_km > 20:
-        # Adiciona diagonais para raios muito grandes
+    if raio_km > 18:
         offset_km = raio_km * 0.65
         d_lat = offset_km / 111.32
         cos_lat = math.cos(math.radians(center_lat))
@@ -159,10 +176,8 @@ def gerar_place_id_estavel(nome: str, endereco: str, telefone: str) -> str:
     return hashlib.md5(base.encode("utf-8")).hexdigest()
 
 
-import telefone_util
-
 # ---------------------------------------------------------------------------
-# Modo 1: Scraper Python (Direto com suporte a Raio / Zoom / Grade / Concorrência)
+# Modo 1: Scraper Python Concorrente de Alta Performance
 # ---------------------------------------------------------------------------
 def _buscar_via_scraper(
     categoria: str,
@@ -176,21 +191,24 @@ def _buscar_via_scraper(
     timeout_seconds: Optional[int] = None,
     start_time: Optional[float] = None,
     busca_completa: bool = False,
+    cidade: str = "",
+    max_leads: Optional[int] = None,
 ) -> list[dict]:
-    """Chama o scraper com coordenadas centrais, zoom, multi-abas e filtros inteligentes."""
+    """Chama o scraper concorrente multi-alvo e multi-termo em paralelo."""
     os.environ["SCRAPER_HEADLESS"] = "true"
     browser_path = caminho_recurso("playwright-browsers")
     if browser_path.exists():
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(browser_path)
 
     try:
-        from scraper_google_maps.core import scrape_google_maps
+        from scraper_google_maps.core import scrape_google_maps_parallel
 
         zoom = calcular_zoom_por_raio(raio_km)
-        concorrencia = 8 if busca_super_rapida else (4 if busca_rapida else 1)
+        concorrencia = 12 if busca_super_rapida else (8 if busca_rapida else 4)
 
-        # Meta de leads por raio — valores generosos para compensar deduplicação e filtro haversine
-        if raio_km <= 5:
+        if max_leads is not None:
+            max_leads_total = max_leads
+        elif raio_km <= 5:
             max_leads_total = 40
         elif raio_km <= 10:
             max_leads_total = 60
@@ -201,83 +219,111 @@ def _buscar_via_scraper(
         else:
             max_leads_total = 200
 
-        # Se temos coordenadas e raio > 8km, usamos varredura multi-ponto
-        if center_lat is not None and center_lng is not None and raio_km > 8:
+        # Identifica se é modo 'Todos os Comércios (Geral)'
+        is_geral = "todos os com" in categoria.lower() or "geral" in categoria.lower() or not categoria.strip()
+
+        # Monta os pontos da grade
+        if center_lat is not None and center_lng is not None and raio_km > 6:
             pontos = gerar_pontos_grade(center_lat, center_lng, raio_km)
-            # Cada ponto busca leads suficientes: usa 30 ou raio//pontos*2, o que for maior
-            leads_por_ponto = max(30, (max_leads_total // len(pontos)) * 2)
         elif center_lat is not None and center_lng is not None:
             pontos = [(center_lat, center_lng, "Centro")]
-            leads_por_ponto = max_leads_total
         else:
-            pontos = [(None, None, "Busca Padrão")]
-            leads_por_ponto = max_leads_total
+            pontos = [(None, None, "Busca")]
 
-        raw_coletados = []
-        # Chave de unicidade: URL do Maps é a fonte mais estável (inclui place ID)
-        # Fallback para nome+telefone quando não há URL
-        chaves_vistas = set()
+        termo_local = cidade if (cidade and len(cidade.strip()) > 1) else localizacao
 
-        for idx, (p_lat, p_lng, label) in enumerate(pontos):
-            import time
-            def _is_cancelled():
-                if estado_busca.get("parar_busca"):
-                    return True
-                if timeout_seconds and start_time and (time.time() - start_time > timeout_seconds):
-                    return True
-                return False
+        # Constrói os alvos em paralelo
+        targets = []
+        if is_geral:
+            # Distribui termos variados entre os pontos para capturar múltiplos nichos comerciais
+            for i, (p_lat, p_lng, label) in enumerate(pontos):
+                nicho = NICHOS_COMERCIAIS_GERAL[i % len(NICHOS_COMERCIAIS_GERAL)]
+                query = f"{nicho} em {termo_local}"
+                targets.append({
+                    "query": query,
+                    "center_lat": p_lat,
+                    "center_lng": p_lng,
+                    "zoom": zoom if p_lat is not None else None,
+                    "label": f"{label} ({nicho})"
+                })
+            # Se tiver poucos pontos (ex: só 1 centro), adiciona os 4 maiores nichos em paralelo no centro
+            if len(targets) < 4:
+                top_nichos = ["restaurante", "mercado", "comércio", "loja"]
+                for tn in top_nichos:
+                    if not any(t["query"].startswith(tn) for t in targets):
+                        targets.append({
+                            "query": f"{tn} em {termo_local}",
+                            "center_lat": center_lat,
+                            "center_lng": center_lng,
+                            "zoom": zoom if center_lat is not None else None,
+                            "label": f"Centro ({tn})"
+                        })
+        else:
+            for i, (p_lat_val, p_lng_val, p_lbl) in enumerate(pontos):
+                targets.append({
+                    "query": f"{categoria} em {termo_local}",
+                    "center_lat": p_lat_val,
+                    "center_lng": p_lng_val,
+                    "zoom": zoom if p_lat_val is not None else None,
+                    "label": p_lbl
+                })
 
-            if _is_cancelled():
-                break
+        import time
+        def _is_cancelled():
+            if estado_busca.get("parar_busca"):
+                return True
+            if timeout_seconds and start_time and (time.time() - start_time > timeout_seconds):
+                return True
+            return False
 
-            _atualizar_estado(mensagem=f"Buscando {categoria} ({label} - raio {raio_km}km)...")
-            query = f"{categoria} em {localizacao}"
-            
-            # Passa o tempo restante para o scraper
-            tempo_restante = None
-            if timeout_seconds and start_time:
-                tempo_restante = int(timeout_seconds - (time.time() - start_time))
-                if tempo_restante <= 0:
-                    break
+        tempo_restante = None
+        if timeout_seconds and start_time:
+            tempo_restante = int(timeout_seconds - (time.time() - start_time))
+            if tempo_restante <= 0:
+                return []
 
-            raw_ponto = scrape_google_maps(
-                query=query,
-                max_leads=leads_por_ponto,
-                center_lat=p_lat,
-                center_lng=p_lng,
-                zoom=zoom if p_lat is not None else None,
+        logger.info("Disparando busca paralela com %d alvos simultâneos...", len(targets))
+        raw_coletados = scrape_google_maps_parallel(
+            targets=targets,
+            max_leads=max_leads_total,
+            concorrencia=concorrencia,
+            progress_callback=lambda p, t, m: _atualizar_estado(progresso=p, total=t, mensagem=m),
+            timeout_seconds=tempo_restante,
+            is_cancelled_callback=_is_cancelled
+        )
+
+        # Fallback Bairro → Cidade se não encontrou quase nada e a localização tinha bairro
+        if len(raw_coletados) < 3 and cidade and cidade.lower() not in localizacao.lower():
+            logger.info("Poucos leads no bairro (%d). Executando fallback expandido para a cidade: %s", len(raw_coletados), cidade)
+            _atualizar_estado(mensagem=f"Expandindo busca para {cidade}...")
+            fallback_targets = [
+                {
+                    "query": f"{nicho} em {cidade}" if is_geral else f"{categoria} em {cidade}",
+                    "center_lat": center_lat,
+                    "center_lng": center_lng,
+                    "zoom": zoom if center_lat is not None else None,
+                    "label": f"Cidade ({nicho if is_geral else categoria})"
+                }
+                for nicho in (["comércio", "restaurante", "loja"] if is_geral else [categoria])
+            ]
+            raw_fallback = scrape_google_maps_parallel(
+                targets=fallback_targets,
+                max_leads=max_leads_total,
                 concorrencia=concorrencia,
                 progress_callback=lambda p, t, m: _atualizar_estado(progresso=p, total=t, mensagem=m),
                 timeout_seconds=tempo_restante,
                 is_cancelled_callback=_is_cancelled
             )
-
-            for r in raw_ponto:
-                nome = r.get("Title") or ""
-                if not nome:
-                    continue
-                # Chave primaria: URL do Maps (contém place ID único)
-                url_maps = r.get("Url") or ""
-                if url_maps:
-                    # Extrai apenas o path do lugar para normalizar (remove @lat,lng e zoom)
-                    url_chave = re.sub(r'/@[^/]+', '', url_maps).split('?')[0].lower().strip('/')
-                    chave = f"url:{url_chave}" if url_chave else f"np:{nome.lower()}_{r.get('Phone', '')}"
-                else:
-                    chave = f"np:{nome.lower()}_{r.get('Phone', '')}"
-
-                if chave not in chaves_vistas:
-                    chaves_vistas.add(chave)
-                    raw_coletados.append(r)
-
-            if len(raw_coletados) >= max_leads_total:
-                break
+            raw_coletados.extend(raw_fallback)
 
     finally:
         os.environ.pop("SCRAPER_HEADLESS", None)
         os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
 
-    # Mapeia, classifica WhatsApp e valida distância pelo raio
+    # Deduplicação e normalização dos leads
+    chaves_vistas = set()
     leads = []
+
     for r in raw_coletados:
         nome = r.get("Title") or ""
         if not nome:
@@ -290,37 +336,45 @@ def _buscar_via_scraper(
         lat_lead = _float(r.get("Lat"))
         lng_lead = _float(r.get("Lng"))
 
-        # Processamento inteligente de múltiplos telefones com priorização de WhatsApp
+        # Chave primária de deduplicação
+        if url:
+            url_chave = re.sub(r'/@[^/]+', '', url).split('?')[0].lower().strip('/')
+            chave = f"url:{url_chave}" if url_chave else f"np:{nome.lower()}_{tel_raw}"
+        else:
+            chave = f"np:{nome.lower()}_{tel_raw}"
+
+        if chave in chaves_vistas:
+            continue
+        chaves_vistas.add(chave)
+
+        # Processamento inteligente de telefones
         info_tel = telefone_util.processar_multiplos_telefones(tel_raw)
         tipo_tel = info_tel["tipo_telefone"]
         tem_wpp = info_tel["tem_whatsapp"]
         tel_formatado = info_tel["telefone_principal"] or tel_raw
         tels_secundarios = info_tel["telefones_secundarios"]
 
-        # Filtro de ignorar telefones fixos / 0800 se solicitado
         if ignorar_fixos and not tem_wpp:
-            logger.info("Ignorando '%s' (telefone fixo/sem whatsapp: %s)", nome, tel_raw)
             continue
 
-        # Filtro de distância pelo Haversine — margem generosa de 40% para não descartar leads válidos
+        # Filtro geográfico com margem de 50%
         if center_lat is not None and center_lng is not None and lat_lead != 0.0 and lng_lead != 0.0:
             dist_km = haversine_km(center_lat, center_lng, lat_lead, lng_lead)
-            if dist_km > (raio_km * 1.4):
-                logger.info("Descartando '%s' (distancia %.1f km fora do raio de %d km)", nome, dist_km, raio_km)
+            if dist_km > (raio_km * 1.5):
                 continue
 
         obs_telefones = f"Telefones adicionais: {', '.join(tels_secundarios)}" if tels_secundarios else ""
-
         place_id = gerar_place_id_estavel(nome, end, tel_raw)
+
         leads.append({
             "place_id": place_id,
             "nome": nome,
-            "categoria": r.get("Category") or "",
+            "categoria": r.get("Category") or (categoria if not is_geral else "Comércio Geral"),
             "avaliacao": _float(r.get("Rating")),
             "total_avaliacoes": _int(r.get("Reviews")),
             "telefone": tel_formatado,
             "endereco": end,
-            "cidade": "",
+            "cidade": cidade or "",
             "estado": "",
             "site": r.get("Website") or "",
             "lat": lat_lead if lat_lead != 0.0 else None,
@@ -413,11 +467,11 @@ def _thread_busca(
 ):
     import db
     import time
-    
+
     start_time = time.time()
     GLOBAL_TIMEOUT = None if busca_completa else 360  # 6 minutos se não for completa
-    
-    # Historico de termos por localização
+
+    # Histórico de termos para diversificação
     arquivo_historico = Path(caminho_recurso("data")) / "historico_termos.json"
     arquivo_historico.parent.mkdir(parents=True, exist_ok=True)
     historico = {}
@@ -430,29 +484,29 @@ def _thread_busca(
 
     loc_key = localizacao.strip().lower()
     termos_antigos = historico.get(loc_key, [])
-    
     termo_busca = categoria
-    
-    # Verifica diversificação
-    if termo_busca.lower() in [t.lower() for t in termos_antigos]:
-        # Sugere alternativa
-        alternativas = ["lojas", "comércio", "empresas", "estabelecimentos", "serviços"]
-        for alt in alternativas:
-            if alt not in [t.lower() for t in termos_antigos]:
-                termo_busca = alt
-                logger.info(f"Termo '{categoria}' ja foi buscado em '{loc_key}'. Diversificando com '{termo_busca}'")
-                _atualizar_estado(mensagem=f"Diversificando busca: {termo_busca}...")
-                break
 
-    # Salva o termo atual no historico
-    if termo_busca.lower() not in [t.lower() for t in termos_antigos]:
-        termos_antigos.append(termo_busca.lower())
-        historico[loc_key] = termos_antigos
-        try:
-            with open(arquivo_historico, "w", encoding="utf-8") as f:
-                json.dump(historico, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.warning(f"Nao foi possivel salvar historico: {e}")
+    # Se o usuário escolheu "Todos os Comércios (Geral)", não substitui por uma única palavra estática
+    is_geral = "todos os com" in categoria.lower() or "geral" in categoria.lower() or not categoria.strip()
+
+    if not is_geral:
+        if termo_busca.lower() in [t.lower() for t in termos_antigos]:
+            alternativas = ["lojas", "comércio", "empresas", "estabelecimentos", "serviços"]
+            for alt in alternativas:
+                if alt not in [t.lower() for t in termos_antigos]:
+                    termo_busca = alt
+                    logger.info("Termo '%s' ja buscado em '%s'. Diversificando com '%s'", categoria, loc_key, termo_busca)
+                    _atualizar_estado(mensagem=f"Diversificando busca: {termo_busca}...")
+                    break
+
+        if termo_busca.lower() not in [t.lower() for t in termos_antigos]:
+            termos_antigos.append(termo_busca.lower())
+            historico[loc_key] = termos_antigos
+            try:
+                with open(arquivo_historico, "w", encoding="utf-8") as f:
+                    json.dump(historico, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                logger.warning("Nao foi possivel salvar historico: %s", e)
 
     raio_m = raio_km * 1000
     query = f"{termo_busca} em {localizacao}"
@@ -462,11 +516,15 @@ def _thread_busca(
         center_lat, center_lng = geocodificar_localizacao(localizacao)
         if center_lat and center_lng:
             logger.info("Localizacao '%s' geocodificada: (%.4f, %.4f)", localizacao, center_lat, center_lng)
+        elif cidade:
+            center_lat, center_lng = geocodificar_localizacao(cidade)
+            if center_lat and center_lng:
+                logger.info("Geocodificacao da cidade '%s': (%.4f, %.4f)", cidade, center_lat, center_lng)
 
         api_key = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 
         try:
-            logger.info("Usando scraper Python interno (%d km, rapida=%s, sem_fixo=%s)", raio_km, busca_rapida, ignorar_fixos)
+            logger.info("Iniciando scraper local (%d km, rapida=%s, super=%s)", raio_km, busca_rapida, busca_super_rapida)
             raw_leads = _buscar_via_scraper(
                 categoria=termo_busca,
                 localizacao=localizacao,
@@ -478,34 +536,46 @@ def _thread_busca(
                 ignorar_fixos=ignorar_fixos,
                 timeout_seconds=GLOBAL_TIMEOUT,
                 start_time=start_time,
-                busca_completa=busca_completa
+                busca_completa=busca_completa,
+                cidade=cidade
             )
         except Exception as erro_scraper:
             logger.exception("scraper interno falhou")
             if not api_key:
                 raise RuntimeError(f"O scraper local falhou: {erro_scraper}") from erro_scraper
-            logger.warning("Scraper interno falhou; usando Google Places API configurada")
+            logger.warning("Scraper local falhou; tentando fallback Google Places API")
             _atualizar_estado(mensagem="Scraper local indisponível; buscando via Google Places API...")
             raw_leads = _buscar_via_places_api(query, cidade, raio_m)
 
         _atualizar_estado(total=len(raw_leads), mensagem=f"Analisando {len(raw_leads)} empresas encontradas...")
         logger.info("%d empresas encontradas, analisando presenca digital e sites...", len(raw_leads))
 
-        leads_processados = []
-        for i, lead in enumerate(raw_leads):
-            if estado_busca.get("parar_busca") or (time.time() - start_time > GLOBAL_TIMEOUT):
-                logger.info("Interrompendo processamento extra de leads devido a parada/timeout.")
-                break
+        from concurrent.futures import ThreadPoolExecutor
 
-            site_status = processar.verificar_site(lead.get("site"))
-            lead["site_status"] = site_status
-            lead["score"] = processar.calcular_score_basico(
-                lead.get("avaliacao", 0),
-                lead.get("total_avaliacoes", 0),
-                site_status,
+        def _processar_um_lead(lead_item):
+            site = lead_item.get("site")
+            if not site:
+                s_status = "sem_site"
+            else:
+                s_status = processar.verificar_site(site)
+            lead_item["site_status"] = s_status
+            lead_item["score"] = processar.calcular_score_basico(
+                lead_item.get("avaliacao", 0),
+                lead_item.get("total_avaliacoes", 0),
+                s_status,
             )
-            leads_processados.append(lead)
-            _atualizar_estado(progresso=i + 1, mensagem=f"Verificando site {i+1}/{len(raw_leads)}...")
+            return lead_item
+
+        leads_processados = []
+        if raw_leads:
+            with ThreadPoolExecutor(max_workers=min(12, len(raw_leads))) as executor:
+                futures = [executor.submit(_processar_um_lead, l) for l in raw_leads]
+                for idx, fut in enumerate(futures, start=1):
+                    if estado_busca.get("parar_busca") or (GLOBAL_TIMEOUT and (time.time() - start_time > GLOBAL_TIMEOUT)):
+                        logger.info("Interrompendo processamento de leads por sinal de parada/timeout.")
+                        break
+                    leads_processados.append(fut.result())
+                    _atualizar_estado(progresso=idx, mensagem=f"Verificando presença digital {idx}/{len(raw_leads)}...")
 
         conn = conn_factory()
         try:
@@ -539,7 +609,7 @@ def iniciar_busca(
     ignorar_fixos: bool = False,
     busca_completa: bool = False
 ):
-    """Inicia a busca em background. Lanca ValueError se ja houver busca rodando."""
+    """Inicia a busca em background. Lança ValueError se já houver busca rodando."""
     with _lock:
         if estado_busca["rodando"]:
             raise ValueError("Ja existe uma busca em andamento")
@@ -556,11 +626,15 @@ def iniciar_busca(
     t = threading.Thread(
         target=_thread_busca,
         args=(categoria, localizacao, cidade, raio_km, db_mod.conectar),
-        kwargs={"busca_rapida": busca_rapida, "busca_super_rapida": busca_super_rapida, "ignorar_fixos": ignorar_fixos},
+        kwargs={
+            "busca_rapida": busca_rapida,
+            "busca_super_rapida": busca_super_rapida,
+            "ignorar_fixos": ignorar_fixos,
+            "busca_completa": busca_completa
+        },
         daemon=True,
     )
     t.start()
-
 
 
 # ---------------------------------------------------------------------------
@@ -578,5 +652,3 @@ def _int(v) -> int:
         return int(float(v or 0))
     except (ValueError, TypeError):
         return 0
-
-
