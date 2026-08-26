@@ -5,9 +5,12 @@ import { AppShell } from './components/layout/AppShell'
 import { BuscarLeads } from './pages/BuscarLeads'
 import { Dashboard } from './pages/Dashboard'
 import { Mensagens } from './pages/Mensagens'
+import { Leads } from './pages/Leads'
 import { ContratosList } from './pages/contratos/ContratosList'
 import { ContratoWizard } from './pages/contratos/ContratoWizard'
 import { ContratoView } from './pages/contratos/ContratoView'
+import { Automacoes } from './pages/Automacoes'
+import { Logs } from './pages/Logs'
 import './index.css'
 
 const originalFetch = window.fetch.bind(window)
@@ -26,10 +29,13 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <Route path="/" element={<AppShell />}>
           <Route index element={<BuscarLeads />} />
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="leads" element={<Leads />} />
           <Route path="mensagens" element={<Mensagens />} />
           <Route path="contratos" element={<ContratosList />} />
           <Route path="contratos/novo" element={<ContratoWizard />} />
           <Route path="contratos/:id" element={<ContratoView />} />
+          <Route path="automacoes" element={<Automacoes />} />
+          <Route path="logs" element={<Logs />} />
           <Route path="*" element={<div style={{padding: 20}}><h2>Em construcao</h2></div>} />
         </Route>
       </Routes>

@@ -11,13 +11,17 @@ import { KanbanBoard } from "../components/leads/KanbanBoard";
 import type { Lead } from "../data/leads.mock";
 
 const CATEGORIAS_SUGERIDAS = [
-  "Clinica medica", "Odontologia", "Fisioterapia", "Psicologia",
-  "Academia", "Restaurante", "Padaria", "Farmacia", "Pet shop",
+  "Todos os Comércios (Geral)",
+  "Restaurante", "Pizzaria", "Hamburgueria", "Padaria", "Cafeteria",
+  "Clinica medica", "Odontologia", "Fisioterapia", "Psicologia", "Estetica",
+  "Academia", "Farmacia", "Pet shop", "Veterinaria",
   "Mecanica", "Eletricista", "Advocacia", "Contabilidade", "Imobiliaria",
+  "Loja de Roupas", "Salao de Beleza", "Barbearia", "Supermercado"
 ];
 
 interface BuscaStatus {
   rodando: boolean;
+  progresso_global?: number;
   progresso: number;
   total: number;
   mensagem: string;
@@ -79,18 +83,33 @@ function apiLeadToLead(a: ApiLead): Lead {
   };
 }
 
+// Cache global para manter o estado da página BuscarLeads ao trocar de aba
+let cacheCategoria = "";
+let cacheLocalizacao = "";
+let cacheRaio = 20;
+let cacheBuscaRapida = true;
+let cacheBuscaSuperRapida = false;
+let cacheIgnorarFixos = false;
+let cacheBuscaCompleta = false;
+let cacheLeadsBuscar: Lead[] = [];
+let cacheTotalLeadsBuscar = 0;
+let cacheStatusBuscar: BuscaStatus | null = null;
+let cacheBuscaTimestamp: string | null = null;
+let cacheSimulatedGlobal = 0;
+let cacheSimulatedLocal = 0;
+
 export function BuscarLeads() {
-  const [categoria, setCategoria] = useState("");
-  const [localizacao, setLocalizacao] = useState("");
-  const [raio, setRaio] = useState(20);
-  const [buscaRapida, setBuscaRapida] = useState(true);
-  const [buscaSuperRapida, setBuscaSuperRapida] = useState(false);
-  const [ignorarFixos, setIgnorarFixos] = useState(false);
+  const [categoria, setCategoria] = useState(cacheCategoria);
+  const [localizacao, setLocalizacao] = useState(cacheLocalizacao);
+  const [raio, setRaio] = useState(cacheRaio);
+  const [buscaRapida, setBuscaRapida] = useState(cacheBuscaRapida);
+  const [buscaSuperRapida, setBuscaSuperRapida] = useState(cacheBuscaSuperRapida);
+  const [ignorarFixos, setIgnorarFixos] = useState(cacheIgnorarFixos);
   const [sugestoes, setSugestoes] = useState<string[]>([]);
   const [showSugestoes, setShowSugestoes] = useState(false);
 
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [totalLeads, setTotalLeads] = useState(0);
+  const [leads, setLeads] = useState<Lead[]>(cacheLeadsBuscar);
+  const [totalLeads, setTotalLeads] = useState(cacheTotalLeadsBuscar);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<"painel" | "mapa" | "kanban">("painel");
@@ -108,22 +127,40 @@ export function BuscarLeads() {
   const [showFiltrosModal, setShowFiltrosModal] = useState(false);
   const [exportadoFeedback, setExportadoFeedback] = useState(false);
 
-  const [status, setStatus] = useState<BuscaStatus | null>(null);
+  const [status, setStatus] = useState<BuscaStatus | null>(cacheStatusBuscar);
   const [erro, setErro] = useState<string | null>(null);
   const [localizacaoResolvida, setLocalizacaoResolvida] = useState("");
+  
+  // Estados para progresso simulado contínuo
+  const [simulatedProgressGlobal, setSimulatedProgressGlobal] = useState(cacheSimulatedGlobal);
+  const [simulatedProgressLocal, setSimulatedProgressLocal] = useState(cacheSimulatedLocal);
+  const [buscaCompleta, setBuscaCompleta] = useState(cacheBuscaCompleta);
   const [centerLat, setCenterLat] = useState<number | undefined>(undefined);
   const [centerLng, setCenterLng] = useState<number | undefined>(undefined);
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const catInputRef = useRef<HTMLDivElement>(null);
-  const buscaTimestampRef = useRef<string | null>(null); // timestamp de início da busca atual
+  const buscaTimestampRef = useRef<string | null>(cacheBuscaTimestamp); // timestamp de início da busca atual
+
+  useEffect(() => { cacheCategoria = categoria; }, [categoria]);
+  useEffect(() => { cacheLocalizacao = localizacao; }, [localizacao]);
+  useEffect(() => { cacheRaio = raio; }, [raio]);
+  useEffect(() => { cacheBuscaRapida = buscaRapida; }, [buscaRapida]);
+  useEffect(() => { cacheBuscaSuperRapida = buscaSuperRapida; }, [buscaSuperRapida]);
+  useEffect(() => { cacheIgnorarFixos = ignorarFixos; }, [ignorarFixos]);
+  useEffect(() => { cacheBuscaCompleta = buscaCompleta; }, [buscaCompleta]);
+  useEffect(() => { cacheSimulatedGlobal = simulatedProgressGlobal; }, [simulatedProgressGlobal]);
+  useEffect(() => { cacheSimulatedLocal = simulatedProgressLocal; }, [simulatedProgressLocal]);
 
   // Sugestoes de categoria
   useEffect(() => {
-    if (!categoria.trim()) { setSugestoes([]); return; }
+    if (!categoria.trim()) {
+      setSugestoes(CATEGORIAS_SUGERIDAS);
+      return;
+    }
     const q = categoria.toLowerCase();
     setSugestoes(
-      CATEGORIAS_SUGERIDAS.filter(c => c.toLowerCase().includes(q)).slice(0, 5)
+      CATEGORIAS_SUGERIDAS.filter(c => c.toLowerCase().includes(q))
     );
   }, [categoria]);
 
@@ -140,31 +177,46 @@ export function BuscarLeads() {
 
   const carregarLeads = useCallback(async (desde?: string) => {
     try {
-      const params = new URLSearchParams({ limit: "100" });
+      const params = new URLSearchParams({ limit: "500" });
       if (desde) params.set("desde", desde);
-      const resp = await fetch(`/api/leads?${params}`);
-      const data = await resp.json();
-      const lista = (data.leads ?? []).map(apiLeadToLead);
+      let resp = await fetch(`/api/leads?${params}`);
+      let data = await resp.json();
+      let lista = (data.leads ?? []).map(apiLeadToLead);
       setLeads(lista);
       setTotalLeads(data.total ?? lista.length);
+      cacheLeadsBuscar = lista;
+      cacheTotalLeadsBuscar = data.total ?? lista.length;
     } catch {
       // silencioso
     }
   }, []);
 
+  const lastTotalRef = useRef(0);
+
   // Polling de status
   const iniciarPolling = () => {
     if (pollingRef.current) clearInterval(pollingRef.current);
+    lastTotalRef.current = 0;
     pollingRef.current = setInterval(async () => {
       try {
         const resp = await fetch("/api/buscar/status");
         const s: BuscaStatus = await resp.json();
         setStatus(s);
+        cacheStatusBuscar = s;
+        
+        // Se encontramos leads novos durante a busca (atualiza a tela de 50 em 50 para não pesar)
+        if (s.rodando && (s.total - lastTotalRef.current >= 50)) {
+          lastTotalRef.current = s.total;
+          carregarLeads(buscaTimestampRef.current ?? undefined);
+        }
+
         if (!s.rodando) {
           clearInterval(pollingRef.current!);
           pollingRef.current = null;
-          // Carrega apenas os leads novos desta busca (desde o timestamp que salvamos antes de iniciar)
+          // Busca final para garantir que pegamos os últimos
           await carregarLeads(buscaTimestampRef.current ?? undefined);
+          setSimulatedProgressGlobal(100);
+          setSimulatedProgressLocal(100);
         }
       } catch {
         clearInterval(pollingRef.current!);
@@ -172,21 +224,86 @@ export function BuscarLeads() {
     }, 1500);
   };
 
+  // Checa status ao montar (para o caso de trocar de aba e voltar durante uma busca ativa)
   useEffect(() => {
+    const checarStatusInicial = async () => {
+      try {
+        const resp = await fetch("/api/buscar/status");
+        const s: BuscaStatus = await resp.json();
+        setStatus(s);
+        cacheStatusBuscar = s;
+
+        if (s.rodando) {
+          iniciarPolling();
+          carregarLeads(buscaTimestampRef.current ?? undefined);
+        } else if (buscaTimestampRef.current) {
+          carregarLeads(buscaTimestampRef.current);
+        }
+      } catch {}
+    };
+
+    checarStatusInicial();
+
     return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
   }, []);
 
+  // Efeito para Progresso Simulado (Fake Progress)
+  useEffect(() => {
+    if (!status?.rodando) return;
+    
+    const realGlobal = status.progresso_global ?? 0;
+    const realLocal = status.total > 0 ? (status.progresso / status.total) * 100 : 0;
+    
+    // Configura o ponto de partida caso a simulação esteja muito atrás do real
+    setSimulatedProgressGlobal(prev => Math.max(prev, realGlobal));
+    setSimulatedProgressLocal(prev => Math.max(prev, realLocal));
+
+    const interval = setInterval(() => {
+      setSimulatedProgressGlobal(prev => {
+        // Se ainda não chegamos no alvo real, anda rápido
+        if (prev < realGlobal) return Math.min(prev + 2, realGlobal);
+        // Se já passamos do alvo real, anda muito lento (assintótico) até 95% do espaço restante para o próximo dezena
+        const nextThreshold = Math.ceil((realGlobal + 1) / 10) * 10;
+        const maxFake = Math.min(nextThreshold, 95);
+        if (prev < maxFake) return prev + (maxFake - prev) * 0.02;
+        return prev;
+      });
+
+      setSimulatedProgressLocal(prev => {
+        if (prev < realLocal) return Math.min(prev + 5, realLocal);
+        const maxFake = 95;
+        if (prev < maxFake) return prev + (maxFake - prev) * 0.05;
+        return prev;
+      });
+    }, 200);
+
+    return () => clearInterval(interval);
+  }, [status]);
+
   const handleBuscar = async () => {
+    if (status?.rodando) {
+      try {
+        await fetch("/api/buscar/parar", { method: "POST" });
+        setStatus(prev => prev ? { ...prev, mensagem: "Parando busca...", rodando: false } : null);
+      } catch {}
+      return;
+    }
+
     if (!localizacao.trim()) { setErro("Digite uma localizacao ou CEP"); return; }
     setErro(null);
     // Limpa os leads exibidos e selecionados antes de iniciar nova busca
     setLeads([]);
     setCheckedIds(new Set());
     setSelectedLead(null);
+    cacheLeadsBuscar = [];
+    cacheTotalLeadsBuscar = 0;
     // Grava o timestamp (menos 2s de margem para atualizado_em do SQLite)
     const agora = new Date(Date.now() - 2000).toISOString().replace('T', ' ').slice(0, 19);
     buscaTimestampRef.current = agora;
+    cacheBuscaTimestamp = agora;
     setStatus({ rodando: true, progresso: 0, total: 0, mensagem: "Iniciando...", erro: null });
+    setSimulatedProgressGlobal(0);
+    setSimulatedProgressLocal(0);
 
     // Geocodifica a localização para centrar o mapa no raio correto
     try {
@@ -210,6 +327,7 @@ export function BuscarLeads() {
           busca_rapida: buscaRapida,
           busca_super_rapida: buscaSuperRapida,
           ignorar_fixos: ignorarFixos,
+          busca_completa: buscaCompleta,
         }),
       });
       const data = await resp.json();
@@ -356,10 +474,6 @@ export function BuscarLeads() {
     setTimeout(() => setExportadoFeedback(false), 3000);
   };
 
-  const progPercent = status && status.total > 0
-    ? Math.round((status.progresso / status.total) * 100)
-    : status?.rodando ? null : null;
-
   return (
     <div className="buscar-page">
       {/* FILTROS LATERAL */}
@@ -382,10 +496,24 @@ export function BuscarLeads() {
               <Search size={14} className="select-icon" />
             </div>
             {showSugestoes && sugestoes.length > 0 && (
-              <div className="autocomplete-dropdown">
+              <div className="autocomplete-dropdown" style={{ maxHeight: "240px", overflowY: "auto", zIndex: 100 }}>
                 {sugestoes.map(s => (
-                  <button key={s} className="autocomplete-item" onClick={() => { setCategoria(s); setShowSugestoes(false); }}>
-                    {s}
+                  <button
+                    key={s}
+                    type="button"
+                    className="autocomplete-item"
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", width: "100%", textAlign: "left" }}
+                    onClick={() => {
+                      setCategoria(s);
+                      setShowSugestoes(false);
+                    }}
+                  >
+                    <span>{s}</span>
+                    {s === "Todos os Comércios (Geral)" && (
+                      <span style={{ fontSize: "0.7rem", opacity: 0.8, background: "rgba(59,130,246,0.2)", color: "#60a5fa", padding: "2px 6px", borderRadius: "4px" }}>
+                        Máximo
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -461,19 +589,39 @@ export function BuscarLeads() {
               <span className="toggle-thumb" />
             </label>
           </div>
+          <div className="filter-toggle" style={{ padding: "4px 0", marginTop: "4px", borderTop: "1px solid var(--border-color)" }}>
+            <span style={{ fontSize: "0.82rem", fontWeight: 500, color: "var(--accent-blue)" }}>⏳ Busca Completa (sem tempo lim.)</span>
+            <label className="toggle-switch">
+              <input
+                type="checkbox"
+                checked={buscaCompleta}
+                onChange={e => setBuscaCompleta(e.target.checked)}
+              />
+              <span className="toggle-thumb" />
+            </label>
+          </div>
         </div>
 
-        {/* Botao de Busca */}
-        <button
-          className="btn-search"
-          onClick={handleBuscar}
-          disabled={status?.rodando}
-        >
-          {status?.rodando
-            ? <><Loader2 size={14} className="spin" /> Buscando...</>
-            : <><Search size={14} /> Buscar leads</>
-          }
-        </button>
+        {/* Botoes de Busca e Parar */}
+        <div style={{ display: "flex", gap: "8px" }}>
+          {status?.rodando ? (
+            <button
+              className="btn-search"
+              onClick={handleBuscar}
+              style={{ flex: 1, backgroundColor: "var(--accent-red)", borderColor: "var(--accent-red)" }}
+            >
+              <Loader2 size={14} className="spin" /> Parar Busca (mostrar resultados)
+            </button>
+          ) : (
+            <button
+              className="btn-search"
+              onClick={handleBuscar}
+              style={{ flex: 1 }}
+            >
+              <Search size={14} /> Buscar leads
+            </button>
+          )}
+        </div>
 
         {/* Erro */}
         {erro && (
@@ -484,13 +632,31 @@ export function BuscarLeads() {
         {status?.rodando && (
           <div className="progress-box">
             <p className="progress-msg">{status.mensagem}</p>
-            {progPercent !== null && (
-              <div className="progress-track">
-                <div className="progress-fill" style={{ width: `${progPercent}%` }} />
+            
+            {/* Progresso Global Simulado */}
+            {status.progresso_global !== undefined && (
+              <div style={{ marginBottom: "12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", marginBottom: "4px" }}>
+                  <span>Progresso Geral</span>
+                  <span>{Math.round(simulatedProgressGlobal)}%</span>
+                </div>
+                <div className="progress-track" style={{ height: "8px", backgroundColor: "var(--bg-card)", border: "1px solid var(--border-color)", overflow: "hidden" }}>
+                  <div className="progress-fill shimmer-effect" style={{ width: `${simulatedProgressGlobal}%`, backgroundColor: "var(--accent-blue)" }} />
+                </div>
               </div>
             )}
-            {progPercent !== null && (
-              <span className="progress-pct">{progPercent}%</span>
+
+            {/* Progresso da Etapa Simulado */}
+            {status.total > 0 && (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", opacity: 0.8, marginBottom: "2px" }}>
+                  <span>Etapa Atual</span>
+                  <span>{Math.round(simulatedProgressLocal)}%</span>
+                </div>
+                <div className="progress-track" style={{ height: "4px", backgroundColor: "var(--bg-card)", overflow: "hidden" }}>
+                  <div className="progress-fill shimmer-effect" style={{ width: `${simulatedProgressLocal}%`, backgroundColor: "var(--accent-color)" }} />
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -799,6 +965,18 @@ export function BuscarLeads() {
             ) : (
               <p className="text-muted">Preencha a categoria e localizacao e clique em Buscar leads.</p>
             )}
+          </div>
+        )}
+
+        {/* ANIMAÇÃO DE CARREGAMENTO */}
+        {status?.rodando && leadsFiltrados.length === 0 && (
+          <div className="loading-radar-container">
+             <div className="radar-wrapper">
+               <MapIcon size={64} className="radar-map-icon" />
+               <div className="radar-scanner"></div>
+             </div>
+             <p className="radar-text">Mapeando região e encontrando leads...</p>
+             <p className="radar-subtext">{status.mensagem}</p>
           </div>
         )}
 

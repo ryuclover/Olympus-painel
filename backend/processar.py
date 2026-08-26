@@ -1124,8 +1124,20 @@ def calcular_score_basico(avaliacao: float, total_avaliacoes: int, site_status: 
     }.get(site_status, 0)
     return int(nota + volume + site_bonus)
 
-def salvar_leads(conn: sqlite3.Connection, leads: list[dict]) -> int:
+def salvar_leads(conn: sqlite3.Connection, leads: list[dict]) -> tuple[int, int]:
+    if not leads:
+        return 0, 0
+    
+    place_ids = [lead['place_id'] for lead in leads if lead.get('place_id')]
+    existentes = set()
+    if place_ids:
+        placeholders = ','.join('?' * len(place_ids))
+        linhas = conn.execute(f"SELECT place_id FROM leads WHERE place_id IN ({placeholders})", place_ids).fetchall()
+        existentes = {r[0] for r in linhas}
+
     salvos = 0
+    num_novos = 0
+    
     for lead in leads:
         try:
             # Garante defaults para novos campos
@@ -1134,6 +1146,10 @@ def salvar_leads(conn: sqlite3.Connection, leads: list[dict]) -> int:
             lead.setdefault("tem_whatsapp", 0)
             lead.setdefault("observacoes", "")
             lead.setdefault("observacao", "")
+
+            eh_novo = lead.get('place_id') not in existentes
+            if eh_novo:
+                num_novos += 1
 
             conn.execute('''
                 INSERT INTO leads (
@@ -1162,5 +1178,5 @@ def salvar_leads(conn: sqlite3.Connection, leads: list[dict]) -> int:
         except Exception as e:
             logger.warning("Erro ao salvar lead %s: %s", lead.get("nome"), e)
     conn.commit()
-    return salvos
+    return salvos, num_novos
 

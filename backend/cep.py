@@ -1,4 +1,4 @@
-﻿"""
+"""
 cep.py — Resolucao de CEP para cidade/estado via ViaCEP (gratuito, sem chave).
 Se o valor digitado nao for CEP, retorna como esta.
 """
@@ -37,12 +37,17 @@ def resolver_localizacao(valor: str) -> dict:
 
         cidade = dados.get("localidade", "")
         estado = dados.get("uf", "")
-        localizacao = f"{cidade}, {estado}"
+        bairro = dados.get("bairro", "").strip()
+        if bairro:
+            localizacao = f"{bairro}, {cidade} - {estado}"
+        else:
+            localizacao = f"{cidade}, {estado}"
 
         return {
             "localizacao": localizacao,
             "cidade": cidade,
             "estado": estado,
+            "bairro": bairro,
             "cep": valor,
         }
 

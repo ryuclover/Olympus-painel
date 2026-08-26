@@ -20,6 +20,7 @@ logging.basicConfig(
     level=getattr(logging, os.environ.get("OLYMPUS_LOG_LEVEL", "INFO").upper(), logging.INFO),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
+import log_store # Ativa o MemoryLogHandler
 logger = logging.getLogger(__name__)
 import rotas
 import rotas_analytics
@@ -47,7 +48,9 @@ app.register_blueprint(rotas_contratos.bp)
 @app.errorhandler(Exception)
 def erro_generico(e):
     import traceback
-    return {"erro": "Erro interno do servidor", "traceback": traceback.format_exc()}, 500
+    trace = traceback.format_exc()
+    logger.error(f"Erro interno (na rota): {e}\n{trace}")
+    return {"erro": "Erro interno do servidor", "traceback": trace}, 500
 
 from flask import send_from_directory
 @app.route('/uploads/<path:filename>')
@@ -65,5 +68,5 @@ with app.app_context():
 if __name__ == "__main__":
     from waitress import serve
     porta = int(os.environ.get("PORT", 9001))
-    logger.info("Olympus-Painel backend rodando em http://localhost:%s", porta)
-    serve(app, host="127.0.0.1", port=porta, threads=4)
+    logger.info("Olympus-Painel backend rodando em http://0.0.0.0:%s", porta)
+    serve(app, host="0.0.0.0", port=porta, threads=8)
