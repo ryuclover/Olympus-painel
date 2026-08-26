@@ -15,6 +15,7 @@
     "dev:backend": "cd backend && py app.py",
     "dev:web": "concurrently --kill-others \"npm run dev\" \"npm run dev:backend\"",
     "dev:electron": "cross-env NODE_ENV=development electron electron/main.cjs",
+    "predev:full": "node scripts/cleanup.js",
     "dev:full": "concurrently --kill-others \"npm run dev:web\" \"wait-on http://localhost:9000 && npm run dev:electron\"",
     "build": "tsc -b && vite build",
     "build:backend": "cd backend && py -m PyInstaller build_backend.spec --distpath ../resources/backend --workpath ../build/pyinstaller --noconfirm",
@@ -26,7 +27,9 @@
   "build": {
     "appId": "com.olympus.painel",
     "productName": "Olympus Painel",
-    "directories": { "output": "release/${version}" },
+    "directories": {
+      "output": "release/${version}"
+    },
     "files": [
       "dist/**",
       "electron/main.cjs",
@@ -38,9 +41,24 @@
       "!electron/main.ts",
       "!electron/preload.ts"
     ],
-    "extraResources": [{ "from": "resources/backend", "to": "backend", "filter": ["**/*"] }],
+    "extraResources": [
+      {
+        "from": "resources/backend",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "electron/icon.ico",
       "artifactName": "OlympusPainel-Setup-v${version}.exe"
     },
@@ -81,6 +99,7 @@
     "cross-env": "^10.1.0",
     "electron": "^43.4.1",
     "electron-builder": "^26.15.3",
+    "kill-port": "^2.0.1",
     "oxlint": "^1.75.0",
     "typescript": "~6.0.2",
     "vite": "^8.2.0",

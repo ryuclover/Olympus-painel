@@ -26,9 +26,10 @@ def disparar_busca():
     busca_rapida = bool(corpo.get("busca_rapida", True))
     busca_super_rapida = bool(corpo.get("busca_super_rapida", False))
     ignorar_fixos = bool(corpo.get("ignorar_fixos", False))
+    busca_completa = bool(corpo.get("busca_completa", False))
 
     if not categoria:
-        categoria = "estabelecimentos comerciais"
+        categoria = "comércio"
     if not localizacao_raw:
         return jsonify({"erro": "Campo 'localizacao' e obrigatorio"}), 400
 
@@ -47,6 +48,7 @@ def disparar_busca():
             busca_rapida=busca_rapida,
             busca_super_rapida=busca_super_rapida,
             ignorar_fixos=ignorar_fixos,
+            busca_completa=busca_completa
         )
     except ValueError as exc:
         return jsonify({"erro": str(exc)}), 409
@@ -60,7 +62,16 @@ def status_busca():
     return jsonify(buscar.estado_busca)
 
 
+@bp.post("/api/buscar/parar")
+def parar_busca():
+    buscar._atualizar_estado(parar_busca=True)
+    return jsonify({"ok": True, "mensagem": "Sinal de parada enviado."})
 
+
+@bp.get("/api/logs")
+def get_logs():
+    import log_store
+    return jsonify({"logs": list(log_store.log_history)})
 
 
 @bp.get("/api/info")

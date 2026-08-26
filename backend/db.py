@@ -127,9 +127,26 @@ def preparar_banco(conn: sqlite3.Connection):
             criado_em       TEXT DEFAULT (datetime('now')),
             atualizado_em   TEXT DEFAULT (datetime('now'))
         );
+        CREATE TABLE IF NOT EXISTS historico_buscas_cep (
+            cep         TEXT PRIMARY KEY,
+            tentativas  INTEGER DEFAULT 0,
+            ultimo_buscado_em TEXT DEFAULT (datetime('now'))
+        );
     """)
 
     # Migrações seguras para bancos existentes
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS historico_buscas_cep (
+                cep         TEXT PRIMARY KEY,
+                tentativas  INTEGER DEFAULT 0,
+                ultimo_buscado_em TEXT DEFAULT (datetime('now'))
+            );
+        """)
+        conn.commit()
+    except Exception:
+        pass
+
     for col, tip in [
         ("foto_url", "TEXT"),
         ("tipo_telefone", "TEXT"),

@@ -67,9 +67,14 @@ async def _async_scrape(
     center_lng: Optional[float] = None,
     zoom: Optional[int] = None,
     concorrencia: int = 4,
-    progress_callback = None
+    progress_callback = None,
+    timeout_seconds: Optional[int] = None,
+    is_cancelled_callback = None
 ) -> list[dict]:
+    import time
     from playwright.async_api import async_playwright
+    
+    start_time = time.time()
 
     encoded_query = urllib.parse.quote_plus(query)
     
@@ -114,14 +119,21 @@ async def _async_scrape(
             await browser.close()
             return leads
 
-        # Scroll adaptativo para carregar links
-        # Scroll menor (1800px) para não pular resultados com lazy-load do Maps
-        max_scrolls = max(10, min(40, max_leads + 5))
+        # Scroll adaptativo e profundo para carregar o máximo de links
+        max_scrolls = max(15, min(80, max_leads + 15))
         hrefs = []
         hrefs_set = set()  # set para O(1) lookup de duplicatas
         consecutive_same_count = 0
 
         for scroll_idx in range(max_scrolls):
+            if timeout_seconds and (time.time() - start_time) > timeout_seconds:
+                logger.info("Timeout atingido (%d s) durante o scroll.", timeout_seconds)
+                break
+            
+            if is_cancelled_callback and is_cancelled_callback():
+                logger.info("Busca cancelada durante o scroll.")
+                break
+
             links = await search_page.locator('a[href*="/maps/place/"]').all()
             for link in links:
                 try:
@@ -140,7 +152,8 @@ async def _async_scrape(
                 fim_el = await search_page.query_selector(
                     'span:has-text("Você chegou ao final da lista"), '
                     'span:has-text("Fim da lista"), '
-                    'div:has-text("Não encontramos mais resultados")'
+                    'div:has-text("Não encontramos mais resultados"), '
+                    'span:has-text("You\'ve reached the end of the list")'
                 )
                 if fim_el:
                     break
@@ -152,21 +165,31 @@ async def _async_scrape(
                 await search_page.evaluate('''() => {
                     const feed = document.querySelector('div[role="feed"]');
                     if (feed) {
-                        feed.scrollBy(0, 1800);
+                        feed.scrollBy(0, 2500);
                     } else {
-                        window.scrollBy(0, 1800);
+                        window.scrollBy(0, 2500);
                     }
                 }''')
-                # Mais paciência quando a lista não cresce
-                sleep_time = 1.8 if len(hrefs) == prev_count else 1.0
+                # Pausa dinâmica humana para carregar novos resultados
+                sleep_time = 1.6 if len(hrefs) == prev_count else 0.9
                 await asyncio.sleep(sleep_time)
             except Exception:
                 break
 
             if len(hrefs) == prev_count:
                 consecutive_same_count += 1
-                if consecutive_same_count >= 5:  # um pouco mais de paciência
-                    break
+                if consecutive_same_count >= 4:
+                    # Tenta mais um scroll final agressivo antes de desistir
+                    try:
+                        await search_page.evaluate('''() => {
+                            const feed = document.querySelector('div[role="feed"]');
+                            if (feed) feed.scrollTop = feed.scrollHeight;
+                        }''')
+                        await asyncio.sleep(2.0)
+                    except Exception:
+                        pass
+                    if len(await search_page.locator('a[href*="/maps/place/"]').all()) <= len(hrefs):
+                        break
             else:
                 consecutive_same_count = 0
 
@@ -179,20 +202,29 @@ async def _async_scrape(
         # Extração Concorrente Multi-Abas
         sem = asyncio.Semaphore(concorrencia)
         
-        completed = [0]
-        async def _task_with_progress(href):
-            res = await _extract_place_task(context, href, sem)
-            completed[0] += 1
-            if progress_callback:
-                progress_callback(completed[0], len(hrefs), f"Buscando detalhes ({completed[0]}/{len(hrefs)})...")
-            return res
 
-        tasks = [_task_with_progress(href) for href in hrefs]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        tasks = []
+        for i, href in enumerate(hrefs):
+            if is_cancelled_callback and is_cancelled_callback():
+                logger.info("Extração de leads cancelada antes de enfileirar todos os links.")
+                break
+            tasks.append(asyncio.create_task(_extract_place_task(context, href, sem)))
 
-        for res in results:
-            if isinstance(res, dict) and res.get('Title'):
+        # Usa as_completed para atualizar progresso e permitir cancelamento imediato
+        for task in asyncio.as_completed(tasks):
+            if is_cancelled_callback and is_cancelled_callback():
+                logger.info("Extração de leads cancelada. Cancelando tarefas pendentes.")
+                for t in tasks:
+                    if not t.done():
+                        t.cancel()
+                break
+            
+            res = await task
+            if res:
                 leads.append(res)
+            
+            if progress_callback:
+                progress_callback(len(leads), min(len(hrefs), max_leads), f"Extraindo dados ({len(leads)}/{min(len(hrefs), max_leads)})...")
 
         await browser.close()
     return leads
@@ -205,29 +237,25 @@ def scrape_google_maps(
     center_lng: Optional[float] = None,
     zoom: Optional[int] = None,
     concorrencia: int = 4,
-    progress_callback = None
+    progress_callback = None,
+    timeout_seconds: Optional[int] = None,
+    is_cancelled_callback = None
 ) -> list[dict]:
     """
     Entry point síncrono com suporte a concorrência multi-abas.
     """
     headless = os.environ.get("SCRAPER_HEADLESS", "false").lower() == "true"
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(
-            _async_scrape(
-                query=query,
-                max_leads=max_leads,
-                headless=headless,
-                center_lat=center_lat,
-                center_lng=center_lng,
-                zoom=zoom,
-                concorrencia=concorrencia,
-                progress_callback=progress_callback
-            )
+    return asyncio.run(
+        _async_scrape(
+            query=query,
+            max_leads=max_leads,
+            headless=headless,
+            center_lat=center_lat,
+            center_lng=center_lng,
+            zoom=zoom,
+            concorrencia=concorrencia,
+            progress_callback=progress_callback,
+            timeout_seconds=timeout_seconds,
+            is_cancelled_callback=is_cancelled_callback
         )
-    finally:
-        loop.close()
-        asyncio.set_event_loop(None)
-
-
+    )

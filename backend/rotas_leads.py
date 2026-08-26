@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 bp = Blueprint("leads", __name__)
 
 LIMITE_PADRAO_LEADS = 30
-LIMITE_MAXIMO_LEADS = 200
+LIMITE_MAXIMO_LEADS = 1000
 
 
 def calcular_lead_dificil(status, follow_ups_enviados, ultimo_followup_em):
@@ -179,9 +179,17 @@ def listar_leads():
     if followup_filtro == "vencido":
         condicoes.append("proximo_followup IS NOT NULL AND proximo_followup <= ?")
         parametros.append(date.today().isoformat())
+    
+    whatsapp_filtro = request.args.get("whatsapp", "")
+    if whatsapp_filtro == "com":
+        condicoes.append("tem_whatsapp = 1")
+    elif whatsapp_filtro == "sem":
+        condicoes.append("tem_whatsapp = 0")
+
     if desde:
+        desde_limpo = desde.replace("T", " ")[:19]
         condicoes.append("atualizado_em >= ?")
-        parametros.append(desde)
+        parametros.append(desde_limpo)
 
     sql = "SELECT * FROM leads"
     if condicoes:
@@ -197,10 +205,15 @@ def listar_leads():
     logger.info(f"TEST API CALL -> status_param: '{status}', sql: {sql}, args: {parametros_com_paginacao}")
 
     if not db.CAMINHO_BANCO.exists():
-        return jsonify({"leads": [], "tem_mais": False})
+        return jsonify({"leads": [], "total": 0, "tem_mais": False})
 
     conexao = db.conectar()
     try:
+        sql_count = "SELECT COUNT(*) FROM leads"
+        if condicoes:
+            sql_count += " WHERE " + " AND ".join(condicoes)
+        total_real = conexao.execute(sql_count, parametros).fetchone()[0]
+
         linhas = conexao.execute(sql, parametros_com_paginacao).fetchall()
     finally:
         conexao.close()
@@ -210,8 +223,10 @@ def listar_leads():
 
     return jsonify({
         "leads": [_enriquecer_lead_para_resposta(db.linha_para_dict(linha)) for linha in linhas],
-        "total": len(linhas),
+        "total": total_real,
         "tem_mais": tem_mais,
+        "offset": offset,
+        "limit": limit,
     })
 
 

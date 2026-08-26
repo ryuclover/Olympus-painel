@@ -2,7 +2,7 @@ import { NavLink } from "react-router-dom";
 import {
   Search, LayoutDashboard, Users, MessageSquare, GitBranch,
   BookUser, CheckSquare, BarChart2, Zap, FileText, Settings,
-  HelpCircle, Headphones, Flame, FileSignature
+  HelpCircle, Headphones, Flame, FileSignature, Terminal
 } from "lucide-react";
 
 const NAV = [
@@ -18,6 +18,7 @@ const NAV = [
   { to: "/modelos", icon: FileText, label: "Modelos" },
   { to: "/configuracoes", icon: Settings, label: "Configuracoes" },
   { to: "/contratos", icon: FileSignature, label: "Contratos" },
+  { to: "/logs", icon: Terminal, label: "Logs" },
 ];
 
 export function Sidebar() {

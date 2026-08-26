@@ -34,7 +34,6 @@ estado_busca: dict = {
     "total": 0,
     "mensagem": "",
     "erro": None,
-    "parar_busca": False,
 }
 _lock = threading.Lock()
 
@@ -172,10 +171,7 @@ def _buscar_via_scraper(
     center_lng: Optional[float] = None,
     busca_rapida: bool = True,
     busca_super_rapida: bool = False,
-    ignorar_fixos: bool = False,
-    timeout_seconds: Optional[int] = None,
-    start_time: Optional[float] = None,
-    busca_completa: bool = False,
+    ignorar_fixos: bool = False
 ) -> list[dict]:
     """Chama o scraper com coordenadas centrais, zoom, multi-abas e filtros inteligentes."""
     os.environ["SCRAPER_HEADLESS"] = "true"
@@ -219,27 +215,8 @@ def _buscar_via_scraper(
         chaves_vistas = set()
 
         for idx, (p_lat, p_lng, label) in enumerate(pontos):
-            import time
-            def _is_cancelled():
-                if estado_busca.get("parar_busca"):
-                    return True
-                if timeout_seconds and start_time and (time.time() - start_time > timeout_seconds):
-                    return True
-                return False
-
-            if _is_cancelled():
-                break
-
             _atualizar_estado(mensagem=f"Buscando {categoria} ({label} - raio {raio_km}km)...")
             query = f"{categoria} em {localizacao}"
-            
-            # Passa o tempo restante para o scraper
-            tempo_restante = None
-            if timeout_seconds and start_time:
-                tempo_restante = int(timeout_seconds - (time.time() - start_time))
-                if tempo_restante <= 0:
-                    break
-
             raw_ponto = scrape_google_maps(
                 query=query,
                 max_leads=leads_por_ponto,
@@ -247,9 +224,7 @@ def _buscar_via_scraper(
                 center_lng=p_lng,
                 zoom=zoom if p_lat is not None else None,
                 concorrencia=concorrencia,
-                progress_callback=lambda p, t, m: _atualizar_estado(progresso=p, total=t, mensagem=m),
-                timeout_seconds=tempo_restante,
-                is_cancelled_callback=_is_cancelled
+                progress_callback=lambda p, t, m: _atualizar_estado(progresso=p, total=t, mensagem=m)
             )
 
             for r in raw_ponto:
@@ -408,54 +383,12 @@ def _thread_busca(
     conn_factory,
     busca_rapida: bool = True,
     busca_super_rapida: bool = False,
-    ignorar_fixos: bool = False,
-    busca_completa: bool = False
+    ignorar_fixos: bool = False
 ):
     import db
-    import time
-    
-    start_time = time.time()
-    GLOBAL_TIMEOUT = None if busca_completa else 360  # 6 minutos se não for completa
-    
-    # Historico de termos por localização
-    arquivo_historico = Path(caminho_recurso("data")) / "historico_termos.json"
-    arquivo_historico.parent.mkdir(parents=True, exist_ok=True)
-    historico = {}
-    if arquivo_historico.exists():
-        try:
-            with open(arquivo_historico, "r", encoding="utf-8") as f:
-                historico = json.load(f)
-        except Exception:
-            historico = {}
-
-    loc_key = localizacao.strip().lower()
-    termos_antigos = historico.get(loc_key, [])
-    
-    termo_busca = categoria
-    
-    # Verifica diversificação
-    if termo_busca.lower() in [t.lower() for t in termos_antigos]:
-        # Sugere alternativa
-        alternativas = ["lojas", "comércio", "empresas", "estabelecimentos", "serviços"]
-        for alt in alternativas:
-            if alt not in [t.lower() for t in termos_antigos]:
-                termo_busca = alt
-                logger.info(f"Termo '{categoria}' ja foi buscado em '{loc_key}'. Diversificando com '{termo_busca}'")
-                _atualizar_estado(mensagem=f"Diversificando busca: {termo_busca}...")
-                break
-
-    # Salva o termo atual no historico
-    if termo_busca.lower() not in [t.lower() for t in termos_antigos]:
-        termos_antigos.append(termo_busca.lower())
-        historico[loc_key] = termos_antigos
-        try:
-            with open(arquivo_historico, "w", encoding="utf-8") as f:
-                json.dump(historico, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.warning(f"Nao foi possivel salvar historico: {e}")
 
     raio_m = raio_km * 1000
-    query = f"{termo_busca} em {localizacao}"
+    query = f"{categoria} em {localizacao}"
 
     try:
         _atualizar_estado(mensagem=f"Geocodificando localização '{localizacao}'...")
@@ -468,17 +401,14 @@ def _thread_busca(
         try:
             logger.info("Usando scraper Python interno (%d km, rapida=%s, sem_fixo=%s)", raio_km, busca_rapida, ignorar_fixos)
             raw_leads = _buscar_via_scraper(
-                categoria=termo_busca,
+                categoria=categoria,
                 localizacao=localizacao,
                 raio_km=raio_km,
                 center_lat=center_lat,
                 center_lng=center_lng,
                 busca_rapida=busca_rapida,
                 busca_super_rapida=busca_super_rapida,
-                ignorar_fixos=ignorar_fixos,
-                timeout_seconds=GLOBAL_TIMEOUT,
-                start_time=start_time,
-                busca_completa=busca_completa
+                ignorar_fixos=ignorar_fixos
             )
         except Exception as erro_scraper:
             logger.exception("scraper interno falhou")
@@ -493,10 +423,6 @@ def _thread_busca(
 
         leads_processados = []
         for i, lead in enumerate(raw_leads):
-            if estado_busca.get("parar_busca") or (time.time() - start_time > GLOBAL_TIMEOUT):
-                logger.info("Interrompendo processamento extra de leads devido a parada/timeout.")
-                break
-
             site_status = processar.verificar_site(lead.get("site"))
             lead["site_status"] = site_status
             lead["score"] = processar.calcular_score_basico(
@@ -536,8 +462,7 @@ def iniciar_busca(
     raio_km: int,
     busca_rapida: bool = True,
     busca_super_rapida: bool = False,
-    ignorar_fixos: bool = False,
-    busca_completa: bool = False
+    ignorar_fixos: bool = False
 ):
     """Inicia a busca em background. Lanca ValueError se ja houver busca rodando."""
     with _lock:
@@ -549,7 +474,6 @@ def iniciar_busca(
             "total": 0,
             "mensagem": "Iniciando...",
             "erro": None,
-            "parar_busca": False,
         })
 
     import db as db_mod
