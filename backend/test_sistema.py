@@ -139,3 +139,10 @@ def test_api_buscar_cnpj(client):
     assert data.get("status") == "sucesso"
     assert data.get("cnpj") == "00000000000191"
     assert "ReceitaWS" in data.get("mensagem", "")
+
+
+def test_buscador_robustez_multi_nicho():
+    """Testa o buscador com CEPs reais e a categoria 'Todos os Comércios (Geral)'."""
+    import test_benchmark_ceps
+    sucessos, total = test_benchmark_ceps.executar_benchmark_ceps(limite_ceps=2)
+    assert sucessos == total, f"O buscador deve encontrar leads em todos os CEPs de teste ({sucessos}/{total})"
