@@ -23,7 +23,7 @@ export default defineConfig({
       },
     },
     watch: {
-      ignored: ['**/backend/**'],
+      ignored: ['**/backend/**', '**/release/**', '**/dist/**'],
     },
   },
 });
