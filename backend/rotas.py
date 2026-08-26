@@ -68,6 +68,24 @@ def parar_busca():
     return jsonify({"ok": True, "mensagem": "Sinal de parada enviado."})
 
 
+@bp.post("/api/buscar/cnpj")
+def buscar_cnpj():
+    """Endpoint esqueleto para busca avançada por CNPJ / Razão Social / CNAE."""
+    dados = request.get_json() or {}
+    cnpj_raw = dados.get("cnpj", "").strip()
+    cnae = dados.get("cnae", "").strip()
+    uf = dados.get("uf", "").strip()
+
+    logger.info(f"Busca por CNPJ solicitada (Esqueleto): cnpj='{cnpj_raw}', cnae='{cnae}', uf='{uf}'")
+    return jsonify({
+        "status": "sucesso",
+        "mensagem": "Busca por CNPJ recebida. Estrutura pronta para integração com ReceitaWS / CNPJws / Sintegra.",
+        "cnpj": cnpj_raw,
+        "cnae": cnae,
+        "uf": uf
+    }), 200
+
+
 @bp.get("/api/logs")
 def get_logs():
     import log_store
