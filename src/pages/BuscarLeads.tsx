@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Search, SlidersHorizontal, Download, ChevronDown,
   MapPin, Loader2, AlertCircle, CheckCircle2, Grid, Map as MapIcon,
-  X, Filter, Check, Send
+  X, Filter, Check, Send, Building2
 } from "lucide-react";
 import { LeadRow } from "../components/leads/LeadRow";
 import { LeadDetailPanel } from "../components/leads/LeadDetailPanel";
@@ -126,6 +126,13 @@ export function BuscarLeads() {
   const [filtroScoreMin, setFiltroScoreMin] = useState(0);
   const [showFiltrosModal, setShowFiltrosModal] = useState(false);
   const [exportadoFeedback, setExportadoFeedback] = useState(false);
+
+  // Estados para modal de Busca via CNPJ (Esqueleto)
+  const [showCnpjModal, setShowCnpjModal] = useState(false);
+  const [cnpjInput, setCnpjInput] = useState("");
+  const [cnaeInput, setCnaeInput] = useState("");
+  const [ufInput, setUfInput] = useState("");
+  const [cnpjFeedback, setCnpjFeedback] = useState<string | null>(null);
 
   const [status, setStatus] = useState<BuscaStatus | null>(cacheStatusBuscar);
   const [erro, setErro] = useState<string | null>(null);
@@ -603,7 +610,7 @@ export function BuscarLeads() {
         </div>
 
         {/* Botoes de Busca e Parar */}
-        <div style={{ display: "flex", gap: "8px" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
           {status?.rodando ? (
             <button
               className="btn-search"
@@ -621,6 +628,30 @@ export function BuscarLeads() {
               <Search size={14} /> Buscar leads
             </button>
           )}
+
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setShowCnpjModal(true)}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              padding: "10px 16px",
+              borderRadius: "8px",
+              border: "1px solid var(--border-color)",
+              background: "rgba(59, 130, 246, 0.1)",
+              color: "#60a5fa",
+              cursor: "pointer",
+              fontWeight: 600,
+              fontSize: "0.88rem",
+              transition: "all 0.2s ease"
+            }}
+          >
+            <Building2 size={15} /> Buscar via CNPJ (Esqueleto)
+          </button>
         </div>
 
         {/* Erro */}
@@ -1049,6 +1080,97 @@ export function BuscarLeads() {
         onClose={() => setSelectedLead(null)}
         onLeadUpdate={handleLeadUpdate}
       />
+
+      {/* Modal / Esqueleto de Busca por CNPJ */}
+      {showCnpjModal && (
+        <div className="modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999, padding: "16px" }}>
+          <div className="modal-content" style={{ background: "#1e293b", padding: "24px", borderRadius: "12px", width: "100%", maxWidth: "480px", border: "1px solid var(--border-color)", color: "#fff", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "8px", fontSize: "1.1rem" }}>
+                <Building2 size={20} color="#3b82f6" /> Busca Avançada via CNPJ (Esqueleto)
+              </h3>
+              <button onClick={() => setShowCnpjModal(false)} style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", padding: "4px" }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: "0.85rem", color: "#94a3b8", marginBottom: "16px", lineHeight: "1.4" }}>
+              Estrutura base configurada para integração futura com APIs de consulta CNPJ (ReceitaWS, CNPJws, Sintegra).
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
+              <div>
+                <label style={{ fontSize: "0.8rem", fontWeight: 600, display: "block", marginBottom: "4px", color: "#cbd5e1" }}>CNPJ ou Razão Social</label>
+                <input
+                  type="text"
+                  placeholder="Ex: 00.000.000/0001-91 ou Nome Fantasia"
+                  value={cnpjInput}
+                  onChange={e => setCnpjInput(e.target.value)}
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: "6px", border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: "0.9rem" }}
+                />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "8px" }}>
+                <div>
+                  <label style={{ fontSize: "0.8rem", fontWeight: 600, display: "block", marginBottom: "4px", color: "#cbd5e1" }}>CNAE (Nicho / Ramo)</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: 4711-3/02"
+                    value={cnaeInput}
+                    onChange={e => setCnaeInput(e.target.value)}
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: "6px", border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: "0.9rem" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: "0.8rem", fontWeight: 600, display: "block", marginBottom: "4px", color: "#cbd5e1" }}>UF / Estado</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: SP, BA"
+                    value={ufInput}
+                    onChange={e => setUfInput(e.target.value)}
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: "6px", border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: "0.9rem" }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {cnpjFeedback && (
+              <div style={{ padding: "12px", background: "rgba(59,130,246,0.15)", border: "1px solid #3b82f6", color: "#60a5fa", borderRadius: "6px", fontSize: "0.85rem", marginBottom: "16px" }}>
+                {cnpjFeedback}
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+              <button
+                type="button"
+                onClick={() => setShowCnpjModal(false)}
+                style={{ padding: "8px 16px", borderRadius: "6px", border: "1px solid #334155", background: "transparent", color: "#cbd5e1", cursor: "pointer", fontSize: "0.85rem" }}
+              >
+                Fechar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const resp = await fetch("/api/buscar/cnpj", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ cnpj: cnpjInput, cnae: cnaeInput, uf: ufInput })
+                    });
+                    const resData = await resp.json();
+                    setCnpjFeedback(resData.mensagem);
+                  } catch (e: any) {
+                    setCnpjFeedback("Erro no envio da requisição de esqueleto CNPJ.");
+                  }
+                }}
+                style={{ padding: "8px 16px", borderRadius: "6px", border: "none", background: "#3b82f6", color: "#fff", cursor: "pointer", fontWeight: 600, fontSize: "0.85rem" }}
+              >
+                Testar Requisição CNPJ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

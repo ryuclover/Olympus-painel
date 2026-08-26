@@ -129,3 +129,13 @@ def test_api_nichos(client):
     assert response.status_code == 200
     data = response.get_json()
     assert isinstance(data, list)
+
+
+def test_api_buscar_cnpj(client):
+    """Testa endpoint POST /api/buscar/cnpj (Esqueleto)."""
+    response = client.post("/api/buscar/cnpj", json={"cnpj": "00000000000191", "cnae": "4711-3/02", "uf": "SP"})
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data.get("status") == "sucesso"
+    assert data.get("cnpj") == "00000000000191"
+    assert "ReceitaWS" in data.get("mensagem", "")
