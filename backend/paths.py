@@ -30,7 +30,7 @@ if EMPACOTADO:
     # --onedir: recursos adicionados via --add-data ficam em sys._MEIPASS
     # (na prática a pasta _internal ao lado do .exe)
     DIR_RECURSOS = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
-    DIR_DADOS = Path(os.environ.get("APPDATA", str(Path.home()))) / "ProspectOS"
+    DIR_DADOS = Path(os.environ.get("APPDATA", str(Path.home()))) / "OlympusPainel"
 else:
     DIR_RECURSOS = _DIR_FONTE
     DIR_DADOS = _DIR_FONTE
