@@ -12,8 +12,10 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite --port 9000",
+    "dev:backend": "cd backend && py app.py",
+    "dev:web": "concurrently --kill-others \"npm run dev\" \"npm run dev:backend\"",
     "dev:electron": "cross-env NODE_ENV=development electron electron/main.cjs",
-    "dev:full": "concurrently --kill-others \"npm run dev\" \"wait-on http://localhost:9000 && npm run dev:electron\"",
+    "dev:full": "concurrently --kill-others \"npm run dev:web\" \"wait-on http://localhost:9000 && npm run dev:electron\"",
     "build": "tsc -b && vite build",
     "build:backend": "cd backend && pyinstaller build_backend.spec --distpath ../resources/backend --workpath ../build/pyinstaller --noconfirm",
     "build:desktop": "npm run build && electron-builder build --win --publish never",
