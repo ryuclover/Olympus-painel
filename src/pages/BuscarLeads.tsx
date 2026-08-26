@@ -173,9 +173,8 @@ export function BuscarLeads() {
   };
 
   useEffect(() => {
-    carregarLeads();
     return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
-  }, [carregarLeads]);
+  }, []);
 
   const handleBuscar = async () => {
     if (!localizacao.trim()) { setErro("Digite uma localizacao ou CEP"); return; }
