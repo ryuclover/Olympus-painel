@@ -8,6 +8,7 @@ import { LeadRow } from "../components/leads/LeadRow";
 import { LeadDetailPanel } from "../components/leads/LeadDetailPanel";
 import { LeadMap } from "../components/leads/LeadMap";
 import { KanbanBoard } from "../components/leads/KanbanBoard";
+import { ModalEnvioMassa } from "../components/leads/ModalEnvioMassa";
 import type { Lead } from "../data/leads.mock";
 
 const CATEGORIAS_SUGERIDAS = [
@@ -79,6 +80,8 @@ function apiLeadToLead(a: ApiLead): Lead {
     fotoUrl: a.foto_url,
     tipoTelefone: a.tipo_telefone,
     temWhatsapp: Boolean(a.tem_whatsapp),
+    whatsappLink: a.whatsapp_link || (a.tem_whatsapp && a.telefone ? `https://wa.me/55${a.telefone.replace(/\D/g, "")}` : undefined),
+    urlMaps: a.url_maps,
     observacao: a.observacoes,
   };
 }
@@ -89,7 +92,7 @@ let cacheLocalizacao = "";
 let cacheRaio = 20;
 let cacheBuscaRapida = true;
 let cacheBuscaSuperRapida = false;
-let cacheIgnorarFixos = false;
+let cacheIgnorarFixos = true;
 let cacheBuscaCompleta = false;
 let cacheLeadsBuscar: Lead[] = [];
 let cacheTotalLeadsBuscar = 0;
@@ -129,6 +132,7 @@ export function BuscarLeads() {
 
   // Estados para modal de Busca via CNPJ (Esqueleto)
   const [showCnpjModal, setShowCnpjModal] = useState(false);
+  const [showEnvioMassaModal, setShowEnvioMassaModal] = useState(false);
   const [cnpjInput, setCnpjInput] = useState("");
   const [cnaeInput, setCnaeInput] = useState("");
   const [ufInput, setUfInput] = useState("");
@@ -586,7 +590,7 @@ export function BuscarLeads() {
             </div>
           )}
           <div className="filter-toggle" style={{ padding: "4px 0" }}>
-            <span style={{ fontSize: "0.82rem", fontWeight: 500 }}>📱 Apenas WhatsApp (ignorar fixos)</span>
+            <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--accent-green, #10b981)" }}>🔥 Apenas WhatsApp (ignorar fixos)</span>
             <label className="toggle-switch">
               <input
                 type="checkbox"
@@ -807,7 +811,7 @@ export function BuscarLeads() {
             {checkedIds.size > 0 && (
               <button
                 className="btn-primary"
-                onClick={() => alert("Em breve: Configuração para disparo automático no WhatsApp!")}
+                onClick={() => setShowEnvioMassaModal(true)}
                 title={`Enviar mensagem para ${checkedIds.size} leads`}
                 style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px" }}
               >
@@ -1171,6 +1175,17 @@ export function BuscarLeads() {
           </div>
         </div>
       )}
+
+      {/* Modal de Disparo em Massa Inteligente (Anti-Ban) */}
+      <ModalEnvioMassa
+        isOpen={showEnvioMassaModal}
+        leadsSelecionados={leads.filter(l => checkedIds.has(l.id))}
+        onClose={() => setShowEnvioMassaModal(false)}
+        onSuccess={() => {
+          setCheckedIds(new Set());
+          carregarLeads();
+        }}
+      />
     </div>
   );
 }

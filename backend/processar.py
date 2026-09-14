@@ -1144,6 +1144,8 @@ def salvar_leads(conn: sqlite3.Connection, leads: list[dict]) -> tuple[int, int]
             lead.setdefault("foto_url", None)
             lead.setdefault("tipo_telefone", "nenhum")
             lead.setdefault("tem_whatsapp", 0)
+            lead.setdefault("whatsapp_link", None)
+            lead.setdefault("url_maps", None)
             lead.setdefault("observacoes", "")
             lead.setdefault("observacao", "")
 
@@ -1156,12 +1158,12 @@ def salvar_leads(conn: sqlite3.Connection, leads: list[dict]) -> tuple[int, int]
                     place_id, nome, categoria, avaliacao, total_avaliacoes,
                     telefone, endereco, cidade, estado, site, site_status,
                     lat, lng, score, status, foto_url, tipo_telefone, tem_whatsapp,
-                    observacoes, observacao, atualizado_em
+                    whatsapp_link, url_maps, observacoes, observacao, atualizado_em
                 ) VALUES (
                     :place_id, :nome, :categoria, :avaliacao, :total_avaliacoes,
                     :telefone, :endereco, :cidade, :estado, :site, :site_status,
                     :lat, :lng, :score, 'novo', :foto_url, :tipo_telefone, :tem_whatsapp,
-                    :observacoes, :observacao, datetime('now')
+                    :whatsapp_link, :url_maps, :observacoes, :observacao, datetime('now')
                 )
                 ON CONFLICT(place_id) DO UPDATE SET
                     lat = COALESCE(excluded.lat, leads.lat),
@@ -1169,6 +1171,8 @@ def salvar_leads(conn: sqlite3.Connection, leads: list[dict]) -> tuple[int, int]
                     foto_url = COALESCE(excluded.foto_url, leads.foto_url),
                     tipo_telefone = COALESCE(excluded.tipo_telefone, leads.tipo_telefone),
                     tem_whatsapp = COALESCE(excluded.tem_whatsapp, leads.tem_whatsapp),
+                    whatsapp_link = COALESCE(excluded.whatsapp_link, leads.whatsapp_link),
+                    url_maps = COALESCE(excluded.url_maps, leads.url_maps),
                     telefone = COALESCE(excluded.telefone, leads.telefone),
                     observacoes = CASE WHEN leads.observacoes IS NULL OR leads.observacoes = '' THEN excluded.observacoes ELSE leads.observacoes END,
                     observacao = CASE WHEN leads.observacao IS NULL OR leads.observacao = '' THEN excluded.observacao ELSE leads.observacao END,

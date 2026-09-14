@@ -2,8 +2,9 @@ import { NavLink } from "react-router-dom";
 import {
   Search, LayoutDashboard, Users, MessageSquare, GitBranch,
   BookUser, CheckSquare, BarChart2, Zap, FileText, Settings,
-  HelpCircle, Headphones, Flame, FileSignature, Terminal
+  HelpCircle, Headphones, Flame, FileSignature, Terminal, LogOut
 } from "lucide-react";
+import { useAuth } from "../../contexts/AuthContext";
 
 const NAV = [
   { to: "/", icon: Search, label: "Buscar Leads" },
@@ -22,6 +23,7 @@ const NAV = [
 ];
 
 export function Sidebar() {
+  const { usuario, logout } = useAuth();
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
@@ -47,7 +49,32 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="sidebar-footer">
+      <div className="sidebar-footer" style={{ display: 'flex', flexDirection: 'column', gap: 6, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+        {usuario && (
+          <div style={{ padding: '0 8px 4px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ overflow: 'hidden' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {usuario.nome}
+              </div>
+              <div style={{ fontSize: '0.7rem', color: '#f59e0b' }}>
+                {usuario.plano ? usuario.plano.toUpperCase() : 'LICENÇA ATIVA'}
+              </div>
+            </div>
+            <button
+              onClick={logout}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#ef4444',
+                cursor: 'pointer',
+                padding: 4
+              }}
+              title="Sair / Trocar de conta"
+            >
+              <LogOut size={16} />
+            </button>
+          </div>
+        )}
         <a href="#" className="footer-link"><HelpCircle size={14} /> Ajuda</a>
         <a href="#" className="footer-link"><Headphones size={14} /> Suporte</a>
       </div>
