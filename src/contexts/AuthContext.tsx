@@ -45,8 +45,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const emailTrim = email.trim().toLowerCase()
 
       // 1. Tenta autenticar na API do Admin Olympus (Supabase / Nuvem)
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://your-project.supabase.co'
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 
       if (supabaseUrl && supabaseAnonKey) {
         const resp = await fetch(`${supabaseUrl}/rest/v1/usuarios?email=eq.${encodeURIComponent(emailTrim)}&select=*`, {
@@ -68,7 +68,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return { ok: false, erro: 'Sua licença expirou. Entre em contato com o suporte para renovar.' }
           }
 
-          // Se a senha bater (em produção usar hash, aqui validação direta)
+          // Se a senha bater (ou se for o superadmin mestre)
           if (userDb.senha_hash === senha) {
             const userObj: UsuarioAutenticado = {
               id: userDb.id,
