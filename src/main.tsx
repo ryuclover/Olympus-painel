@@ -13,6 +13,9 @@ import { Automacoes } from './pages/Automacoes'
 import { Logs } from './pages/Logs'
 import './index.css'
 
+import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { LoginScreen } from './pages/LoginScreen'
+
 const originalFetch = window.fetch.bind(window)
 const apiOrigin = import.meta.env.DEV ? '' : 'http://127.0.0.1:9001'
 window.fetch = (input, init) => {
@@ -22,8 +25,22 @@ window.fetch = (input, init) => {
   return originalFetch(input, init)
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
+function MainApp() {
+  const { usuario, carregando } = useAuth()
+
+  if (carregando) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#0a0d14', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
+        Carregando Olympus...
+      </div>
+    )
+  }
+
+  if (!usuario) {
+    return <LoginScreen />
+  }
+
+  return (
     <HashRouter>
       <Routes>
         <Route path="/" element={<AppShell />}>
@@ -40,5 +57,13 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         </Route>
       </Routes>
     </HashRouter>
+  )
+}
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <AuthProvider>
+      <MainApp />
+    </AuthProvider>
   </React.StrictMode>,
 )

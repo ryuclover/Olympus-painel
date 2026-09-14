@@ -31,6 +31,7 @@ import rotas_leads
 import rotas_dashboard
 import rotas_templates
 import rotas_contratos
+import rotas_disparo_whatsapp
 
 app = Flask(__name__)
 CORS(app, origins=["http://localhost:9000", "http://127.0.0.1:9000", "null"])
@@ -43,6 +44,7 @@ app.register_blueprint(rotas_leads.bp)
 app.register_blueprint(rotas_dashboard.bp)
 app.register_blueprint(rotas_templates.bp)
 app.register_blueprint(rotas_contratos.bp)
+app.register_blueprint(rotas_disparo_whatsapp.bp)
 
 
 @app.errorhandler(Exception)

@@ -187,7 +187,7 @@ def _buscar_via_scraper(
     center_lng: Optional[float] = None,
     busca_rapida: bool = True,
     busca_super_rapida: bool = False,
-    ignorar_fixos: bool = False,
+    ignorar_fixos: bool = True,
     timeout_seconds: Optional[int] = None,
     start_time: Optional[float] = None,
     busca_completa: bool = False,
@@ -202,6 +202,14 @@ def _buscar_via_scraper(
 
     try:
         from scraper_google_maps.core import scrape_google_maps_parallel
+        import db as db_mod
+
+        # Carrega URLs conhecidas para deduplicação prévia (evita abrir abas desnecessárias)
+        conn_previa = db_mod.conectar()
+        try:
+            urls_existentes = db_mod.obter_urls_leads_existentes(conn_previa)
+        finally:
+            conn_previa.close()
 
         zoom = calcular_zoom_por_raio(raio_km)
         concorrencia = 12 if busca_super_rapida else (8 if busca_rapida else 4)
@@ -289,7 +297,8 @@ def _buscar_via_scraper(
             concorrencia=concorrencia,
             progress_callback=lambda p, t, m: _atualizar_estado(progresso=p, total=t, mensagem=m),
             timeout_seconds=tempo_restante,
-            is_cancelled_callback=_is_cancelled
+            is_cancelled_callback=_is_cancelled,
+            urls_existentes=urls_existentes
         )
 
         # Fallback Bairro → Cidade se não encontrou quase nada e a localização tinha bairro
@@ -312,7 +321,8 @@ def _buscar_via_scraper(
                 concorrencia=concorrencia,
                 progress_callback=lambda p, t, m: _atualizar_estado(progresso=p, total=t, mensagem=m),
                 timeout_seconds=tempo_restante,
-                is_cancelled_callback=_is_cancelled
+                is_cancelled_callback=_is_cancelled,
+                urls_existentes=urls_existentes
             )
             raw_coletados.extend(raw_fallback)
 
@@ -577,6 +587,18 @@ def _thread_busca(
                     leads_processados.append(fut.result())
                     _atualizar_estado(progresso=idx, mensagem=f"Verificando presença digital {idx}/{len(raw_leads)}...")
 
+        # Enriquecimento com link direto do WhatsApp e ordenação prioritária
+        for l in leads_processados:
+            if l.get("tem_whatsapp") and l.get("telefone"):
+                tel_limpo = telefone_util.limpar_digitos(l["telefone"])
+                if tel_limpo:
+                    l["whatsapp_link"] = f"https://wa.me/55{tel_limpo}"
+
+        leads_processados.sort(
+            key=lambda l: (l.get("tem_whatsapp", 0), l.get("score", 0)),
+            reverse=True
+        )
+
         conn = conn_factory()
         try:
             salvos = processar.salvar_leads(conn, leads_processados)
@@ -606,7 +628,7 @@ def iniciar_busca(
     raio_km: int,
     busca_rapida: bool = True,
     busca_super_rapida: bool = False,
-    ignorar_fixos: bool = False,
+    ignorar_fixos: bool = True,
     busca_completa: bool = False
 ):
     """Inicia a busca em background. Lança ValueError se já houver busca rodando."""

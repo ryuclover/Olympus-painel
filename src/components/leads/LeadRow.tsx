@@ -40,7 +40,17 @@ export function LeadRow({ lead, selected, checked, onCheck, onClick }: Props) {
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span>{lead.telefone}</span>
           {lead.temWhatsapp ? (
-            <span className="badge-wpp-tag" style={{ fontSize: "0.65rem", padding: "1px 4px" }}>WPP</span>
+            <a
+              href={lead.whatsappLink || `https://wa.me/55${(lead.telefone || "").replace(/\D/g, "")}`}
+              target="_blank"
+              rel="noreferrer"
+              onClick={e => e.stopPropagation()}
+              className="badge-wpp-tag"
+              style={{ fontSize: "0.65rem", padding: "2px 6px", textDecoration: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 3, fontWeight: 600 }}
+              title="Abrir conversa no WhatsApp"
+            >
+              💬 WhatsApp
+            </a>
           ) : lead.tipoTelefone === "fixo" ? (
             <span className="badge-fixo-tag" style={{ fontSize: "0.65rem", padding: "1px 4px" }}>Fixo</span>
           ) : null}

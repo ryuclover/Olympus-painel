@@ -73,6 +73,7 @@ def preparar_banco(conn: sqlite3.Connection):
             foto_url        TEXT,
             tipo_telefone   TEXT,
             tem_whatsapp    INTEGER DEFAULT 0,
+            url_maps        TEXT,
             criado_em       TEXT DEFAULT (datetime('now')),
             atualizado_em   TEXT DEFAULT (datetime('now'))
         );
@@ -132,6 +133,21 @@ def preparar_banco(conn: sqlite3.Connection):
             tentativas  INTEGER DEFAULT 0,
             ultimo_buscado_em TEXT DEFAULT (datetime('now'))
         );
+
+        CREATE TABLE IF NOT EXISTS fila_whatsapp (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            lead_id         TEXT NOT NULL,
+            nome            TEXT NOT NULL,
+            telefone        TEXT NOT NULL,
+            mensagem        TEXT NOT NULL,
+            status          TEXT DEFAULT 'pendente', -- pendente, processando, enviado, falha, cancelado
+            tentativas      INTEGER DEFAULT 0,
+            agendado_para   TEXT DEFAULT (datetime('now')),
+            enviado_em      TEXT,
+            erro            TEXT,
+            criado_em       TEXT DEFAULT (datetime('now')),
+            atualizado_em   TEXT DEFAULT (datetime('now'))
+        );
     """)
 
     # Migrações seguras para bancos existentes
@@ -141,6 +157,22 @@ def preparar_banco(conn: sqlite3.Connection):
                 cep         TEXT PRIMARY KEY,
                 tentativas  INTEGER DEFAULT 0,
                 ultimo_buscado_em TEXT DEFAULT (datetime('now'))
+            );
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS fila_whatsapp (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                lead_id         TEXT NOT NULL,
+                nome            TEXT NOT NULL,
+                telefone        TEXT NOT NULL,
+                mensagem        TEXT NOT NULL,
+                status          TEXT DEFAULT 'pendente',
+                tentativas      INTEGER DEFAULT 0,
+                agendado_para   TEXT DEFAULT (datetime('now')),
+                enviado_em      TEXT,
+                erro            TEXT,
+                criado_em       TEXT DEFAULT (datetime('now')),
+                atualizado_em   TEXT DEFAULT (datetime('now'))
             );
         """)
         conn.commit()
@@ -153,12 +185,19 @@ def preparar_banco(conn: sqlite3.Connection):
         ("tem_whatsapp", "INTEGER DEFAULT 0"),
         ("data_fechamento", "TEXT"),
         ("notas_fechamento", "TEXT"),
+        ("url_maps", "TEXT"),
     ]:
         try:
             conn.execute(f"ALTER TABLE leads ADD COLUMN {col} {tip}")
             conn.commit()
         except Exception:
             pass
+
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_leads_url_maps ON leads(url_maps)")
+        conn.commit()
+    except Exception:
+        pass
 
     # Inserir template padrão se a tabela estiver vazia
     linhas = conn.execute("SELECT COUNT(*) as qtd FROM mensagens_template").fetchone()
@@ -173,6 +212,24 @@ def preparar_banco(conn: sqlite3.Connection):
         )
     
     conn.commit()
+
+
+def obter_urls_leads_existentes(conn: sqlite3.Connection) -> set[str]:
+    """Retorna um conjunto de URLs normalizadas já cadastradas para deduplicação prévia."""
+    import re
+    urls = set()
+    try:
+        linhas = conn.execute("SELECT url_maps FROM leads WHERE url_maps IS NOT NULL AND url_maps != ''").fetchall()
+        for r in linhas:
+            u = r[0] if isinstance(r, (tuple, list)) else r["url_maps"]
+            if u:
+                u_norm = re.sub(r'/@[^/]+', '', u).split('?')[0].lower().strip('/')
+                if u_norm:
+                    urls.add(u_norm)
+    except Exception as e:
+        logger.warning("Erro ao carregar URLs de leads existentes: %s", e)
+    return urls
+
 
 
 CHAVES_CONFIG_VALIDAS = {

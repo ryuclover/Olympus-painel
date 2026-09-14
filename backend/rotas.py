@@ -25,7 +25,7 @@ def disparar_busca():
     raio_km = int(corpo.get("raio_km") or 20)
     busca_rapida = bool(corpo.get("busca_rapida", True))
     busca_super_rapida = bool(corpo.get("busca_super_rapida", False))
-    ignorar_fixos = bool(corpo.get("ignorar_fixos", False))
+    ignorar_fixos = bool(corpo.get("ignorar_fixos", True))
     busca_completa = bool(corpo.get("busca_completa", False))
 
     if not categoria:

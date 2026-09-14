@@ -21,17 +21,17 @@ async def _dismiss_consent_async(page):
         pass
 
 
-async def _extract_place_task(context, href: str, sem: asyncio.Semaphore, retries: int = 2) -> Optional[dict]:
+async def _extract_place_task(context, href: str, sem: asyncio.Semaphore, retries: int = 1) -> Optional[dict]:
     async with sem:
         for attempt in range(retries):
             page = await context.new_page()
             try:
-                await page.goto(href, wait_until="domcontentloaded", timeout=16000)
+                await page.goto(href, wait_until="domcontentloaded", timeout=10000)
                 await _dismiss_consent_async(page)
 
                 # Aguarda brevemente o H1
                 try:
-                    await page.wait_for_selector('h1', timeout=4000)
+                    await page.wait_for_selector('h1', timeout=2000)
                 except Exception:
                     pass
 
@@ -48,7 +48,7 @@ async def _extract_place_task(context, href: str, sem: asyncio.Semaphore, retrie
                     pass
 
             if attempt < retries - 1:
-                await asyncio.sleep(0.4)
+                await asyncio.sleep(0.3)
         return None
 
 
@@ -185,13 +185,15 @@ async def _async_scrape_multi_targets(
     concorrencia_extracao: int = 4,
     progress_callback = None,
     timeout_seconds: Optional[int] = None,
-    is_cancelled_callback = None
+    is_cancelled_callback = None,
+    urls_existentes: Optional[set] = None,
 ) -> List[Dict[str, Any]]:
     """
     Executa busca multi-ponto e multi-nicho de forma CONCORRENTE e PARALELA.
     Abre múltiplos fluxos de busca simultaneamente e extrai os resultados em pool compartilhado.
     """
     import time
+    import re
     from playwright.async_api import async_playwright
 
     start_time = time.time()
@@ -250,8 +252,20 @@ async def _async_scrape_multi_targets(
 
         await asyncio.gather(*collect_tasks, return_exceptions=True)
 
-        hrefs_to_extract = hrefs_pool[:max_leads_total]
-        logger.info("Varredura paralela encontrou %d links únicos para extração.", len(hrefs_to_extract))
+        # Deduplicação Prévia no Banco SQLite (evita abrir abas no navegador para leads já cadastrados)
+        if urls_existentes:
+            hrefs_filtrados = []
+            for h in hrefs_pool:
+                h_norm = re.sub(r'/@[^/]+', '', h).split('?')[0].lower().strip('/')
+                if h_norm not in urls_existentes:
+                    hrefs_filtrados.append(h)
+            logger.info("Deduplicação prévia: %d links já existentes no banco ignorados; %d links novos prontos.",
+                        len(hrefs_pool) - len(hrefs_filtrados), len(hrefs_filtrados))
+            hrefs_to_extract = hrefs_filtrados[:max_leads_total]
+        else:
+            hrefs_to_extract = hrefs_pool[:max_leads_total]
+
+        logger.info("Varredura paralela selecionou %d links inéditos para extração de detalhes.", len(hrefs_to_extract))
 
         if not hrefs_to_extract:
             await browser.close()
@@ -299,7 +313,8 @@ def scrape_google_maps_parallel(
     concorrencia: int = 4,
     progress_callback = None,
     timeout_seconds: Optional[int] = None,
-    is_cancelled_callback = None
+    is_cancelled_callback = None,
+    urls_existentes: Optional[set] = None
 ) -> list[dict]:
     """Entry point síncrono para busca multi-ponto e multi-termo em paralelo."""
     headless = os.environ.get("SCRAPER_HEADLESS", "false").lower() == "true"
@@ -311,7 +326,8 @@ def scrape_google_maps_parallel(
             concorrencia_extracao=concorrencia,
             progress_callback=progress_callback,
             timeout_seconds=timeout_seconds,
-            is_cancelled_callback=is_cancelled_callback
+            is_cancelled_callback=is_cancelled_callback,
+            urls_existentes=urls_existentes
         )
     )
 

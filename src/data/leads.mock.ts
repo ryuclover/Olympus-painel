@@ -32,6 +32,8 @@ export interface Lead {
   fotoUrl?: string;
   tipoTelefone?: string;
   temWhatsapp?: boolean;
+  whatsappLink?: string;
+  urlMaps?: string;
 }
 
 export const LEADS_MOCK: Lead[] = [
