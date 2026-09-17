@@ -50,6 +50,8 @@ interface ApiLead {
   tipo_telefone?: string;
   tem_whatsapp?: number;
   observacoes?: string;
+  whatsapp_link?: string;
+  url_maps?: string;
 }
 
 function apiLeadToLead(a: ApiLead): Lead {

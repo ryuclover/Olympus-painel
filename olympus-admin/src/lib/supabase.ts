@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Carrega as variáveis de ambiente públicas ou fallback para demonstração local
+// Apenas a URL e a chave anon, que são públicas por definição, chegam ao cliente.
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 

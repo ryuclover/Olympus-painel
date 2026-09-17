@@ -20,7 +20,12 @@ import {
 import type { Lead } from "../data/leads.mock";
 import { ScoreBadge } from "../components/leads/ScoreBadge";
 import { LeadDetailPanel } from "../components/leads/LeadDetailPanel";
+import { fetchJson } from "../lib/api";
 import "./Leads.css";
+
+interface ApiLead {
+  [key: string]: unknown;
+}
 
 // Função para mapear o formato da API para o formato do Frontend
 function apiLeadToLead(a: any): Lead {
@@ -109,8 +114,7 @@ export function Leads() {
       if (nichoFiltro) params.set("nicho", nichoFiltro);
       if (whatsappFiltro) params.set("whatsapp", whatsappFiltro);
 
-      const resp = await fetch(`/api/leads?${params}`);
-      const data = await resp.json();
+      const data = await fetchJson<{ leads?: ApiLead[]; total?: number }>(`/api/leads?${params}`);
 
       const lista = (data.leads ?? []).map(apiLeadToLead);
       setLeads(lista);
@@ -137,8 +141,8 @@ export function Leads() {
   const carregarDadosIniciais = useCallback(async () => {
     try {
       const [resNichos, resMetrics] = await Promise.all([
-        fetch("/api/nichos").then(r => r.json()),
-        fetch("/api/dashboard/metrics").then(r => r.json()).catch(() => null)
+        fetchJson<string[]>("/api/nichos"),
+        fetchJson<any>("/api/dashboard/metrics").catch(() => null)
       ]);
       setNichosDisponiveis(resNichos || []);
       if (resMetrics) {
@@ -176,15 +180,13 @@ export function Leads() {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const sResp = await fetch("/api/buscar/status");
-        const s = await sResp.json();
+        const s = await fetchJson<{ rodando?: boolean }>("/api/buscar/status");
         
         // Se a busca estiver rodando, nós pausamos o "carregamento aos pouquinhos" nesta aba
         if (s.rodando) return;
         
         // Se não estiver rodando, verificamos se o total mudou
-        const mResp = await fetch("/api/dashboard/metrics");
-        const m = await mResp.json();
+        const m = await fetchJson<any>("/api/dashboard/metrics");
         if (m && m.total_leads !== totalLeads) {
           carregarDadosIniciais();
           carregarLeads();
