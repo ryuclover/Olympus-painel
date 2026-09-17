@@ -1,29 +1,52 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
+import { useState } from "react";
 import {
   Search, LayoutDashboard, Users, MessageSquare, GitBranch,
   BookUser, CheckSquare, BarChart2, Zap, FileText, Settings,
-  HelpCircle, Headphones, Flame, FileSignature, Terminal, LogOut
+  HelpCircle, Headphones, Flame, FileSignature, Terminal, LogOut,
+  MoreHorizontal, ChevronDown
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 
-const NAV = [
+const MAIN_NAV = [
   { to: "/", icon: Search, label: "Buscar Leads" },
   { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/leads", icon: Users, label: "Leads" },
   { to: "/mensagens", icon: MessageSquare, label: "Mensagens" },
+  { to: "/contratos", icon: FileSignature, label: "Contratos" },
+  { to: "/automacoes", icon: Zap, label: "Automacoes" },
+  { to: "/logs", icon: Terminal, label: "Logs" },
+];
+
+const MORE_NAV = [
   { to: "/diagramas", icon: GitBranch, label: "Diagramas" },
   { to: "/contatos", icon: BookUser, label: "Contatos" },
   { to: "/tarefas", icon: CheckSquare, label: "Tarefas" },
   { to: "/relatorios", icon: BarChart2, label: "Relatorios" },
-  { to: "/automacoes", icon: Zap, label: "Automacoes" },
   { to: "/modelos", icon: FileText, label: "Modelos" },
   { to: "/configuracoes", icon: Settings, label: "Configuracoes" },
-  { to: "/contratos", icon: FileSignature, label: "Contratos" },
-  { to: "/logs", icon: Terminal, label: "Logs" },
 ];
 
 export function Sidebar() {
   const { usuario, logout } = useAuth();
+  const location = useLocation();
+  const moreIsActive = MORE_NAV.some(item => location.pathname === item.to);
+  const [moreOpen, setMoreOpen] = useState(moreIsActive);
+
+  const renderNavItem = ({ to, icon: Icon, label }: typeof MAIN_NAV[number]) => (
+    <NavLink
+      key={to}
+      to={to}
+      end={to === "/"}
+      className={({ isActive }) =>
+        `nav-item ${isActive ? "nav-item-active" : ""}`
+      }
+    >
+      <Icon size={16} />
+      <span>{label}</span>
+    </NavLink>
+  );
+
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
@@ -34,19 +57,22 @@ export function Sidebar() {
       </div>
 
       <nav className="sidebar-nav">
-        {NAV.map(({ to, icon: Icon, label }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === "/"}
-            className={({ isActive }) =>
-              `nav-item ${isActive ? "nav-item-active" : ""}`
-            }
-          >
-            <Icon size={16} />
-            <span>{label}</span>
-          </NavLink>
-        ))}
+        {MAIN_NAV.map(renderNavItem)}
+        <button
+          type="button"
+          className={`nav-item nav-more-button ${moreIsActive ? "nav-item-active" : ""}`}
+          onClick={() => setMoreOpen(open => !open)}
+          aria-expanded={moreOpen}
+        >
+          <MoreHorizontal size={16} />
+          <span>Mais</span>
+          <ChevronDown size={15} className={`nav-more-chevron ${moreOpen ? "nav-more-chevron-open" : ""}`} />
+        </button>
+        {moreOpen && (
+          <div className="nav-more-items">
+            {MORE_NAV.map(renderNavItem)}
+          </div>
+        )}
       </nav>
 
       <div className="sidebar-footer" style={{ display: 'flex', flexDirection: 'column', gap: 6, borderTop: '1px solid var(--border)', paddingTop: 12 }}>

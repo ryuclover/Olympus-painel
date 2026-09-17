@@ -50,6 +50,12 @@
 .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; color: var(--text-secondary); text-decoration: none; border-radius: 6px; font-weight: 500; }
 .nav-item:hover { background-color: var(--bg-hover); color: var(--text-primary); }
 .nav-item-active { background-color: var(--bg-hover); color: var(--text-primary); }
+.nav-more-button { width: 100%; border: 0; font: inherit; cursor: pointer; text-align: left; }
+.nav-more-button span { flex: 1; }
+.nav-more-chevron { transition: transform 0.2s ease; }
+.nav-more-chevron-open { transform: rotate(180deg); }
+.nav-more-items { display: flex; flex-direction: column; gap: 4px; padding-left: 12px; border-left: 1px solid var(--border); margin-left: 20px; }
+.nav-more-items .nav-item { font-size: 0.9rem; padding-block: 8px; }
 .sidebar-footer { padding: 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
 .footer-link { display: flex; align-items: center; gap: 12px; padding: 8px 12px; color: var(--text-secondary); text-decoration: none; border-radius: 6px; font-size: 13px; }
 .footer-link:hover { background-color: var(--bg-hover); color: var(--text-primary); }

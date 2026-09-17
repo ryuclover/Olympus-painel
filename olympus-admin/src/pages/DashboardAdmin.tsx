@@ -16,6 +16,7 @@ export const DashboardAdmin: React.FC<Props> = ({ usuarioLogado, onLogout }) => 
   const [filtro, setFiltro] = useState('')
   const [modalNovo, setModalNovo] = useState(false)
   const [carregando, setCarregando] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
 
   // Campos para novo usuário
   const [novoNome, setNovoNome] = useState('')
@@ -24,139 +25,60 @@ export const DashboardAdmin: React.FC<Props> = ({ usuarioLogado, onLogout }) => 
   const [novoPlano, setNovoPlano] = useState<'trial' | 'pro' | 'vitalicio'>('pro')
   const [novoCargo, setNovoCargo] = useState<'membro' | 'admin'>('membro')
 
-  // Carrega lista de usuários locais (mock de demonstração) ou Supabase
-  const MOCK_USUARIOS: Usuario[] = [
-    {
-      id: 'superadmin-1',
-      nome: 'Gabriel Superadmin',
-      email: 'admin@olympus.app',
-      cargo: 'superadmin',
-      plano: 'vitalicio',
-      status: 'ativo',
-      criado_em: new Date().toISOString()
-    },
-    {
-      id: 'usr-2',
-      nome: 'Cliente Beta 01',
-      email: 'cliente@empresa.com',
-      cargo: 'membro',
-      plano: 'pro',
-      status: 'ativo',
-      criado_em: new Date(Date.now() - 86400000 * 5).toISOString()
-    },
-    {
-      id: 'usr-3',
-      nome: 'Usuário Suspenso',
-      email: 'antigo@parceiro.com',
-      cargo: 'membro',
-      plano: 'trial',
-      status: 'bloqueado',
-      criado_em: new Date(Date.now() - 86400000 * 20).toISOString()
-    }
-  ]
-
   useEffect(() => {
     carregarUsuarios()
   }, [])
 
   const carregarUsuarios = async () => {
     setCarregando(true)
+    setErro(null)
     try {
-      if (supabase) {
-        const { data, error } = await supabase
-          .from('usuarios')
-          .select('*')
-          .order('criado_em', { ascending: false })
+      if (!supabase) throw new Error('Supabase não configurado.')
+      const { data, error } = await supabase
+        .from('usuarios')
+        .select('*')
+        .order('criado_em', { ascending: false })
 
-        if (data && !error) {
-          setUsuarios(data)
-          setCarregando(false)
-          return
-        }
-      }
-
-      // Se não houver supabase configurado ainda, usa o localStorage para simular persistência real
-      const salvo = localStorage.getItem('olympus_usuarios_local')
-      if (salvo) {
-        setUsuarios(JSON.parse(salvo))
-      } else {
-        setUsuarios(MOCK_USUARIOS)
-        localStorage.setItem('olympus_usuarios_local', JSON.stringify(MOCK_USUARIOS))
-      }
+      if (error) throw error
+      setUsuarios(data ?? [])
     } catch (e) {
       console.error(e)
+      setUsuarios([])
+      setErro('Não foi possível carregar as contas. Verifique as políticas de segurança do Supabase.')
     } finally {
       setCarregando(false)
     }
   }
 
-  const salvarLista = (novaLista: Usuario[]) => {
-    setUsuarios(novaLista)
-    localStorage.setItem('olympus_usuarios_local', JSON.stringify(novaLista))
+  const executarAlteracao = async (operacao: () => Promise<{ error: any }>) => {
+    setErro(null)
+    const { error } = await operacao()
+    if (error) {
+      setErro('Operação recusada pelo servidor. Nenhuma alteração local foi aplicada.')
+      return false
+      }
+    await carregarUsuarios()
+    return true
   }
 
   const handleCriarUsuario = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!novoNome || !novoEmail || !novaSenha) return
-
-    const novo: Usuario = {
-      id: `usr-${Date.now()}`,
-      nome: novoNome,
-      email: novoEmail.toLowerCase().trim(),
-      cargo: novoCargo,
-      plano: novoPlano,
-      status: 'ativo',
-      criado_em: new Date().toISOString()
-    }
-
-    if (supabase) {
-      try {
-        await supabase.from('usuarios').insert([{
-          nome: novo.nome,
-          email: novo.email,
-          senha_hash: novaSenha, // No servidor aplicar bcrypt
-          cargo: novo.cargo,
-          plano: novo.plano,
-          status: 'ativo'
-        }])
-      } catch (err) {
-        console.error(err)
-      }
-    }
-
-    salvarLista([novo, ...usuarios])
-    setModalNovo(false)
-    setNovoNome('')
-    setNovoEmail('')
-    setNovaSenha('')
+    setErro('A criação de contas deve ser feita por uma Edge Function segura do Supabase. O navegador não envia nem armazena senhas.')
   }
 
-  const handleToggleStatus = (id: string) => {
-    const atualizados = usuarios.map(u => {
-      if (u.id === id) {
-        const proximoStatus = u.status === 'ativo' ? 'bloqueado' : 'ativo'
-        return { ...u, status: proximoStatus as Usuario['status'] }
-      }
-      return u
-    })
-    salvarLista(atualizados)
+  const handleToggleStatus = async (user: Usuario) => {
+    const proximoStatus = user.status === 'ativo' ? 'bloqueado' : 'ativo'
+    await executarAlteracao(async () => supabase!.from('usuarios').update({ status: proximoStatus }).eq('id', user.id))
   }
 
-  const handlePromover = (id: string) => {
-    const atualizados = usuarios.map(u => {
-      if (u.id === id) {
-        const proximoCargo = u.cargo === 'admin' ? 'membro' : 'admin'
-        return { ...u, cargo: proximoCargo as Usuario['cargo'] }
-      }
-      return u
-    })
-    salvarLista(atualizados)
+  const handlePromover = async (user: Usuario) => {
+    const proximoCargo = user.cargo === 'admin' ? 'membro' : 'admin'
+    await executarAlteracao(async () => supabase!.from('usuarios').update({ cargo: proximoCargo }).eq('id', user.id))
   }
 
-  const handleExcluir = (id: string) => {
+  const handleExcluir = async (id: string) => {
     if (!confirm('Tem certeza que deseja excluir esta conta? O usuário perderá o acesso imediatamente.')) return
-    const filtrados = usuarios.filter(u => u.id !== id)
-    salvarLista(filtrados)
+    await executarAlteracao(async () => supabase!.from('usuarios').delete().eq('id', id))
   }
 
   const usuariosFiltrados = usuarios.filter(u => 
@@ -219,6 +141,11 @@ export const DashboardAdmin: React.FC<Props> = ({ usuarioLogado, onLogout }) => 
 
       {/* Main Container */}
       <main style={{ maxWidth: 1200, margin: '0 auto', padding: 24 }}>
+        {erro && (
+          <div style={{ marginBottom: 16, padding: 12, borderRadius: 8, border: '1px solid rgba(239, 68, 68, 0.35)', background: 'rgba(239, 68, 68, 0.1)', color: '#fca5a5' }}>
+            {erro}
+          </div>
+        )}
         {/* Placar de Resumo */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 24 }}>
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', padding: 20, borderRadius: 12 }}>
@@ -366,7 +293,7 @@ export const DashboardAdmin: React.FC<Props> = ({ usuarioLogado, onLogout }) => 
                     {user.cargo !== 'superadmin' && (
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
                         <button
-                          onClick={() => handleToggleStatus(user.id)}
+                          onClick={() => handleToggleStatus(user)}
                           style={{
                             padding: '6px 10px',
                             borderRadius: 6,
@@ -383,7 +310,7 @@ export const DashboardAdmin: React.FC<Props> = ({ usuarioLogado, onLogout }) => 
                         </button>
 
                         <button
-                          onClick={() => handlePromover(user.id)}
+                          onClick={() => handlePromover(user)}
                           style={{
                             padding: '6px 10px',
                             borderRadius: 6,

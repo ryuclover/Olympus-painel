@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { MessageSquare, Plus, Edit2, Trash2, Check, Star } from "lucide-react";
+import { fetchJson } from "../lib/api";
 import "./Mensagens.css";
 
 interface Template {
@@ -27,14 +28,8 @@ export function Mensagens() {
   const carregarTemplates = async () => {
     setLoading(true);
     try {
-      const resp = await fetch("/api/templates");
-      const data = await resp.json();
-      if (Array.isArray(data)) {
-        setTemplates(data);
-      } else {
-        console.error("API Error:", data);
-        setTemplates([]);
-      }
+      const data = await fetchJson<Template[]>("/api/templates");
+      setTemplates(data);
     } catch (e) {
       console.error(e);
     } finally {

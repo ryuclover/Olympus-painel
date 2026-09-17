@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { 
-  X, Send, ShieldCheck, Clock, AlertTriangle, Play, Pause, Trash2, CheckCircle2, RefreshCw 
+  X, ShieldCheck, Play, RefreshCw
 } from "lucide-react";
 import type { Lead } from "../../data/leads.mock";
 

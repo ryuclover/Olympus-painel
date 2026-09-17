@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { Terminal } from "lucide-react";
+import { fetchJson } from "../lib/api";
 
 export function Logs() {
   const [logs, setLogs] = useState<string[]>([]);
@@ -8,11 +9,8 @@ export function Logs() {
   useEffect(() => {
     const fetchLogs = async () => {
       try {
-        const resp = await fetch("/api/logs");
-        if (resp.ok) {
-          const data = await resp.json();
-          setLogs(data.logs || []);
-        }
+        const data = await fetchJson<{ logs?: string[] }>("/api/logs");
+        setLogs(data.logs || []);
       } catch (e) {
         console.error("Falha ao buscar logs", e);
       }

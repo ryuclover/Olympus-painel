@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import { Flame, Lock, Mail, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react'
+import { Flame, Lock, Mail, ShieldCheck, AlertCircle, Loader2, Chrome } from 'lucide-react'
+import { supabase } from '../lib/supabase'
 
 interface Props {
   onLoginSuccess: (usuario: any) => void
@@ -17,52 +18,40 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess }) => {
     setLoading(true)
 
     try {
-      // Login Admin: aceita credenciais do Supabase ou superadmin local
-      if (email === 'admin@olympus.app' && senha === 'admin123') {
-        const adminUser = {
-          id: 'superadmin-1',
-          nome: 'Gabriel Superadmin',
-          email: 'admin@olympus.app',
-          cargo: 'superadmin',
-          plano: 'vitalicio',
-          status: 'ativo'
-        }
-        localStorage.setItem('olympus_admin_session', JSON.stringify(adminUser))
-        onLoginSuccess(adminUser)
-        return
+      if (!supabase) {
+        throw new Error('Autenticação não configurada. Defina as variáveis do Supabase na Vercel.')
       }
 
-      // Se tiver Supabase configurado, valida na nuvem
-      const { supabase } = await import('../lib/supabase')
-      if (supabase) {
-        const { data, error } = await supabase
-          .from('usuarios')
-          .select('*')
-          .eq('email', email)
-          .single()
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password: senha
+      })
 
-        if (error || !data) {
-          throw new Error('E-mail ou senha incorretos.')
-        }
-
-        if (data.status === 'bloqueado') {
-          throw new Error('Esta conta está bloqueada pelo administrador.')
-        }
-
-        if (data.cargo !== 'superadmin' && data.cargo !== 'admin') {
-          throw new Error('Acesso restrito apenas a administradores.')
-        }
-
-        localStorage.setItem('olympus_admin_session', JSON.stringify(data))
-        onLoginSuccess(data)
-      } else {
-        throw new Error('Credenciais inválidas. Para o primeiro acesso use admin@olympus.app / admin123')
+      if (error || !data.user) {
+        throw new Error('E-mail ou senha incorretos.')
       }
+
+      onLoginSuccess(data.user)
     } catch (err: any) {
       setErro(err.message || 'Erro ao realizar login.')
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleGoogleLogin = async () => {
+    setErro(null)
+    if (!supabase) {
+      setErro('Autenticação não configurada. Defina as variáveis do Supabase na Vercel.')
+      return
+    }
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin }
+    })
+
+    if (error) setErro('Não foi possível iniciar o login com Google.')
   }
 
   return (
@@ -201,6 +190,30 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess }) => {
             {loading ? 'Validando...' : 'Acessar Painel Admin'}
           </button>
         </form>
+
+        <button
+          type="button"
+          onClick={handleGoogleLogin}
+          disabled={loading}
+          style={{
+            marginTop: 12,
+            width: '100%',
+            padding: '12px',
+            background: 'transparent',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            color: '#fff',
+            fontWeight: 700,
+            fontSize: '0.95rem',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8
+          }}
+        >
+          <Chrome size={18} /> Entrar com Google
+        </button>
 
         <div style={{ marginTop: 24, textAlign: 'center', borderTop: '1px solid var(--border)', paddingTop: 16 }}>
           <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>
