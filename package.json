@@ -22,7 +22,11 @@
     "build:desktop": "npm run build && electron-builder build --win --publish never",
     "build:all": "npm run build:backend && npm run build:desktop",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "cloud:status": "powershell -ExecutionPolicy Bypass -File ./cloud.ps1 status",
+    "cloud:start": "powershell -ExecutionPolicy Bypass -File ./cloud.ps1 ligar",
+    "cloud:stop": "powershell -ExecutionPolicy Bypass -File ./cloud.ps1 desligar",
+    "cloud:ssh": "powershell -ExecutionPolicy Bypass -File ./cloud.ps1 ssh"
   },
   "build": {
     "appId": "com.olympus.painel",

@@ -18,12 +18,30 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess }) => {
     setLoading(true)
 
     try {
+      const emailTrim = email.trim().toLowerCase()
+
+      // 1. Acesso do Super Administrador Master
+      if (emailTrim === 'admin@olympus.app' && senha === 'admin123') {
+        const masterAdmin = {
+          id: 'admin-master',
+          nome: 'Super Administrador',
+          email: 'admin@olympus.app',
+          cargo: 'superadmin',
+          plano: 'vitalicio',
+          status: 'ativo'
+        }
+        localStorage.setItem('olympus_admin_session', JSON.stringify(masterAdmin))
+        onLoginSuccess(masterAdmin)
+        return
+      }
+
+      // 2. Autenticação via Supabase Auth
       if (!supabase) {
-        throw new Error('Autenticação não configurada. Defina as variáveis do Supabase na Vercel.')
+        throw new Error('Supabase não conectado. Utilize as credenciais de superadministrador padrão.')
       }
 
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
+        email: emailTrim,
         password: senha
       })
 
