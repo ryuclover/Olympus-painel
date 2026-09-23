@@ -8,6 +8,21 @@ export function App() {
   const [carregando, setCarregando] = useState(true)
 
   useEffect(() => {
+    // 1. Verifica se já há uma sessão de admin salva localmente
+    const sessaoSalva = localStorage.getItem('olympus_admin_session')
+    if (sessaoSalva) {
+      try {
+        const adminObj = JSON.parse(sessaoSalva)
+        if (adminObj && adminObj.cargo && (adminObj.cargo === 'superadmin' || adminObj.cargo === 'admin')) {
+          setUsuario(adminObj)
+          setCarregando(false)
+          return
+        }
+      } catch (e) {
+        localStorage.removeItem('olympus_admin_session')
+      }
+    }
+
     if (!supabase) {
       setCarregando(false)
       return
@@ -15,38 +30,44 @@ export function App() {
 
     const carregarSessao = async () => {
       const cliente = supabase
-      if (!cliente) return
-      const { data: { session } } = await cliente.auth.getSession()
-      await aplicarSessao(session?.user ?? null)
-      setCarregando(false)
+      if (!cliente) {
+        setCarregando(false)
+        return
+      }
+      try {
+        const { data: { session } } = await cliente.auth.getSession()
+        await aplicarSessao(session?.user ?? null)
+      } catch (err) {
+        console.warn('Erro ao checar sessão remota Supabase:', err)
+      } finally {
+        setCarregando(false)
+      }
     }
 
     const aplicarSessao = async (user: any) => {
       const cliente = supabase
-      if (!cliente) {
-        setUsuario(null)
-        return
-      }
-      if (!user) {
-        setUsuario(null)
+      if (!cliente || !user) {
         return
       }
 
-      const { data, error } = await cliente
-        .from('usuarios')
-        .select('id, nome, email, cargo, plano, status')
-        .eq('email', user.email ?? '')
-        .in('cargo', ['admin', 'superadmin'])
-        .eq('status', 'ativo')
-        .maybeSingle()
+      try {
+        const { data, error } = await cliente
+          .from('usuarios')
+          .select('id, nome, email, cargo, plano, status')
+          .eq('email', user.email ?? '')
+          .in('cargo', ['admin', 'superadmin'])
+          .eq('status', 'ativo')
+          .maybeSingle()
 
-      if (error || !data) {
-        await cliente.auth.signOut()
-        setUsuario(null)
-        return
+        if (error || !data) {
+          return
+        }
+
+        setUsuario(data)
+        localStorage.setItem('olympus_admin_session', JSON.stringify(data))
+      } catch (err) {
+        console.warn('Erro ao validar perfil de admin:', err)
       }
-
-      setUsuario(data)
     }
 
     carregarSessao()
@@ -60,7 +81,10 @@ export function App() {
   }, [])
 
   const handleLogout = async () => {
-    await supabase?.auth.signOut()
+    localStorage.removeItem('olympus_admin_session')
+    try {
+      await supabase?.auth.signOut()
+    } catch {}
     setUsuario(null)
   }
 

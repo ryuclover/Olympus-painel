@@ -55,9 +55,42 @@ def erro_generico(e):
     return {"erro": "Erro interno do servidor", "traceback": trace}, 500
 
 from flask import send_from_directory
+
 @app.route('/uploads/<path:filename>')
 def serve_upload(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
+
+# Suporte para servir os frontends web e admin quando empacotados em contêiner (Google Cloud Run)
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "dist"
+ADMIN_DIST = Path(__file__).resolve().parent.parent / "olympus-admin" / "dist"
+
+from flask import send_from_directory, redirect
+
+@app.route('/admin')
+def redirect_admin():
+    return redirect('/admin/')
+
+@app.route('/admin/', defaults={'path': ''})
+@app.route('/admin/<path:path>')
+def serve_admin(path):
+    if ADMIN_DIST.exists():
+        arquivo = ADMIN_DIST / path
+        if path and arquivo.is_file():
+            return send_from_directory(ADMIN_DIST, path)
+        return send_from_directory(ADMIN_DIST, 'index.html')
+    return {"erro": "Painel admin não compilado"}, 404
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_painel(path):
+    if path.startswith('api/') or path.startswith('uploads/'):
+        return {"erro": "Rota não encontrada"}, 404
+    if FRONTEND_DIST.exists():
+        arquivo = FRONTEND_DIST / path
+        if path and arquivo.is_file():
+            return send_from_directory(FRONTEND_DIST, path)
+        return send_from_directory(FRONTEND_DIST, 'index.html')
+    return {"status": "Olympus API online", "versao": "1.8.0"}
 
 
 # Prepara o banco ao iniciar

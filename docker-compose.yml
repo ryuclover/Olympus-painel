@@ -1,0 +1,21 @@
+services:
+  olympus:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: olympus-painel:latest
+    container_name: olympus_app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - OLYMPUS_LOG_LEVEL=INFO
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
+    volumes:
+      - olympus_data:/root/.OlympusPainel
+
+volumes:
+  olympus_data:
