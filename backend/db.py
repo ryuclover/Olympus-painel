@@ -148,33 +148,27 @@ def preparar_banco(conn: sqlite3.Connection):
             criado_em       TEXT DEFAULT (datetime('now')),
             atualizado_em   TEXT DEFAULT (datetime('now'))
         );
+
+        CREATE TABLE IF NOT EXISTS reunioes (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            lead_id         TEXT NOT NULL,
+            lead_nome       TEXT,
+            telefone        TEXT,
+            canal           TEXT DEFAULT 'maps',
+            titulo          TEXT NOT NULL,
+            data_reuniao    TEXT NOT NULL,
+            horario_reuniao TEXT NOT NULL,
+            link_reuniao    TEXT,
+            status          TEXT DEFAULT 'agendada', -- agendada, concluida, cancelada
+            notas           TEXT,
+            criado_em       TEXT DEFAULT (datetime('now')),
+            atualizado_em   TEXT DEFAULT (datetime('now'))
+        );
     """)
 
     # Migrações seguras para bancos existentes
     try:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS historico_buscas_cep (
-                cep         TEXT PRIMARY KEY,
-                tentativas  INTEGER DEFAULT 0,
-                ultimo_buscado_em TEXT DEFAULT (datetime('now'))
-            );
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS fila_whatsapp (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                lead_id         TEXT NOT NULL,
-                nome            TEXT NOT NULL,
-                telefone        TEXT NOT NULL,
-                mensagem        TEXT NOT NULL,
-                status          TEXT DEFAULT 'pendente',
-                tentativas      INTEGER DEFAULT 0,
-                agendado_para   TEXT DEFAULT (datetime('now')),
-                enviado_em      TEXT,
-                erro            TEXT,
-                criado_em       TEXT DEFAULT (datetime('now')),
-                atualizado_em   TEXT DEFAULT (datetime('now'))
-            );
-        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_reunioes_data ON reunioes(data_reuniao, status)")
         conn.commit()
     except Exception:
         pass
@@ -238,8 +232,14 @@ CHAVES_CONFIG_VALIDAS = {
     "nvidia": "NVIDIA_API_KEY",
     "pagespeed": "PAGESPEED_API_KEY",
     "places": "PLACES_API_KEY",
+    "nvidia_model": "NVIDIA_MODEL",
+    "provedor_ia_preferido": "PROVEDOR_IA_PREFERIDO",
+    "whatsapp_admin_notificacao": "WHATSAPP_ADMIN_NOTIFICACAO",
+    "agente_estrategia": "AGENTE_ESTRATEGIA",
+    "guia_vendas_ia": "GUIA_VENDAS_IA",
+    "whatsapp_envio_automatico": "WHATSAPP_ENVIO_AUTOMATICO",
 }
-CHAVES_SECRETAS = set(CHAVES_CONFIG_VALIDAS)
+CHAVES_SECRETAS = {"gemini", "groq", "nvidia", "pagespeed", "places"}
 _SERVICO_KEYRING = "ProspectOS"
 
 def _keyring_obter(chave):

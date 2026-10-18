@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Search, SlidersHorizontal, Download, ChevronDown,
   MapPin, Loader2, AlertCircle, CheckCircle2, Grid, Map as MapIcon,
-  X, Filter, Check, Send, Building2
+  X, Filter, Check, Send, Building2, ArrowRight, Globe
 } from "lucide-react";
 import { LeadRow } from "../components/leads/LeadRow";
 import { LeadDetailPanel } from "../components/leads/LeadDetailPanel";
@@ -491,11 +491,46 @@ export function BuscarLeads() {
     <div className="buscar-page">
       {/* FILTROS LATERAL */}
       <aside className="filters-panel">
-        <h2 className="filters-title">Buscar novos leads</h2>
+        <div>
+          <span style={{ fontSize: "0.72rem", color: "#fbbf24", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            Etapa 1: Tanque de Leads
+          </span>
+          <h2 className="filters-title" style={{ marginTop: 2 }}>Coleta Autônoma de Leads</h2>
+        </div>
+
+        {/* Banner de Acesso Rápido ao Caçador Web IA */}
+        <a
+          href="#/agente"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "10px 12px",
+            borderRadius: 8,
+            background: "linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(79, 70, 229, 0.25))",
+            border: "1px solid rgba(99, 102, 241, 0.35)",
+            color: "#c7d2fe",
+            textDecoration: "none",
+            fontSize: "0.8rem",
+            fontWeight: 600,
+            marginTop: 4,
+            marginBottom: 6,
+            transition: "all 0.2s ease"
+          }}
+        >
+          <div style={{ width: 28, height: 28, borderRadius: 6, background: "rgba(99, 102, 241, 0.3)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Globe size={16} color="#818cf8" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <span style={{ color: "#ffffff", display: "block", fontSize: "0.82rem" }}>Caçador Web com IA</span>
+            <span style={{ fontSize: "0.7rem", color: "#a5b4fc", fontWeight: 400 }}>A IA busca leads na internet para você</span>
+          </div>
+          <ArrowRight size={14} color="#818cf8" />
+        </a>
 
         {/* Categoria com autocomplete */}
         <div className="filter-group" ref={catInputRef}>
-          <label>Categoria / Nicho</label>
+          <label>Nicho Comercial / Segmento</label>
           <div style={{ position: "relative" }}>
             <div className="select-wrapper">
               <input
@@ -536,11 +571,11 @@ export function BuscarLeads() {
 
         {/* Localizacao */}
         <div className="filter-group">
-          <label>Localizacao ou CEP</label>
+          <label>Cidade Alvo (Varredura Multi-Polos)</label>
           <div className="select-wrapper">
             <input
               type="text"
-              placeholder="Ex: Porto Alegre, RS ou 90000-000"
+              placeholder="Ex: Florianópolis, SC ou Campinas, SP"
               value={localizacao}
               onChange={e => setLocalizacao(e.target.value)}
             />
@@ -553,7 +588,7 @@ export function BuscarLeads() {
 
         {/* Raio */}
         <div className="filter-group">
-          <label>Raio de busca: <strong>{raio} km</strong></label>
+          <label>Raio de Cobertura: <strong>{raio} km</strong> (Polos + Grade Radial)</label>
           <input
             type="range" min={1} max={100} value={raio}
             onChange={e => setRaio(Number(e.target.value))}

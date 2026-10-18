@@ -39,9 +39,8 @@ logger = logging.getLogger(__name__)
 # tenta o próximo automaticamente. Cada usuário pode configurar 1, 2 ou os 3.
 ORDEM_PROVEDORES_IA = ["gemini", "groq", "nvidia"]
 
-# Timeout por chamada de IA. Sem ele, um provedor que pendura a conexão travaria
-# a geração pra sempre e o fallback nunca chegaria ao próximo provedor.
-IA_TIMEOUT_SEGUNDOS = 45
+# Timeout por chamada de IA. Modelos de 120B com raciocinio profundo podem levar ate 90s.
+IA_TIMEOUT_SEGUNDOS = 120
 
 NOMES_AMIGAVEIS_PROVEDOR = {
     "gemini": "Google Gemini",
@@ -149,24 +148,125 @@ def groq_gerar_mensagem(system, user, temperatura=TEMPERATURA_COPY, formato_json
     return resposta.choices[0].message.content.strip()
 
 
+MODELO_NVIDIA_PADRAO = "nvidia/nemotron-3.5-super-vl-120b-a12b"
+
+
+def obter_ordem_provedores():
+    """Retorna a ordem de prioridade dos provedores de IA, respeitando
+    a preferência salva pelo usuário nas configurações (ex: 'nvidia' prioritário)."""
+    preferido = (db.obter_config("provedor_ia_preferido") or "").strip().lower()
+    base = ["gemini", "groq", "nvidia"]
+    if preferido in base:
+        return [preferido] + [p for p in base if p != preferido]
+    # Se a chave da NVIDIA estiver configurada, prioriza NVIDIA por padrão
+    if db.obter_config("nvidia"):
+        return ["nvidia", "gemini", "groq"]
+    return base
+
+
 def nvidia_gerar_mensagem(system, user, temperatura=TEMPERATURA_COPY, formato_json=False):
-    from openai import OpenAI
+    import requests
 
     chave = db.obter_config("nvidia")
-    cliente = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=chave, timeout=IA_TIMEOUT_SEGUNDOS)
-    extras = {"response_format": {"type": "json_object"}} if formato_json else {}
-    resposta = cliente.chat.completions.create(
-        model="nvidia/llama-3.3-nemotron-super-49b-v1",
-        messages=[
+    if not chave:
+        raise ValueError("Chave da NVIDIA não configurada. Configure em Configurações.")
+
+    modelo = db.obter_config("nvidia_model") or MODELO_NVIDIA_PADRAO
+    headers = {
+        "Authorization": f"Bearer {chave}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": modelo,
+        "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        temperature=temperatura,
-        top_p=0.9,
-        max_tokens=700,
-        **extras,
-    )
-    return resposta.choices[0].message.content.strip()
+        "temperature": temperatura,
+        "top_p": 0.95,
+        "max_tokens": 4096,
+    }
+
+    tentativas = 3
+    resp = None
+    for tentativa in range(tentativas):
+        try:
+            resp = requests.post(
+                "https://integrate.api.nvidia.com/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=100,
+            )
+            if resp.status_code == 200:
+                break
+            if resp.status_code in (500, 502, 503, 504, 429) and tentativa < tentativas - 1:
+                tempo = (tentativa + 1) * 2
+                logger.warning("NVIDIA retornou HTTP %s, tentando novamente em %ss...", resp.status_code, tempo)
+                time.sleep(tempo)
+                continue
+        except Exception as e_req:
+            if tentativa < tentativas - 1:
+                tempo = (tentativa + 1) * 2
+                logger.warning("NVIDIA timeout/conexão (%s), tentando novamente em %ss...", e_req, tempo)
+                time.sleep(tempo)
+                continue
+            raise e_req
+
+    if not resp or resp.status_code != 200:
+        raise RuntimeError(f"Erro na API NVIDIA ({resp.status_code if resp else 'sem resposta'}): {resp.text if resp else ''}")
+
+    dados = resp.json()
+    msg = dados["choices"][0]["message"]
+    conteudo = msg.get("content") or msg.get("reasoning_content") or ""
+    return str(conteudo).strip()
+
+
+def testar_conexao_nvidia(chave_api=None, modelo=None):
+    """Testa a conexão direta com o endpoint da NVIDIA Build usando o modelo Nemotron 3.5 Super."""
+    import requests
+    import time
+
+    chave = chave_api or db.obter_config("nvidia")
+    if not chave:
+        return False, "Chave da NVIDIA não informada ou não configurada."
+
+    mod = modelo or db.obter_config("nvidia_model") or MODELO_NVIDIA_PADRAO
+    headers = {
+        "Authorization": f"Bearer {chave}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": mod,
+        "messages": [
+            {"role": "user", "content": "Diga: Olympus Nemotron Online!"},
+        ],
+        "temperature": 0.2,
+        "max_tokens": 250,
+    }
+
+    inicio = time.time()
+    try:
+        resp = requests.post(
+            "https://integrate.api.nvidia.com/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=30,
+        )
+        duracao = round(time.time() - inicio, 2)
+        if resp.status_code != 200:
+            return False, f"HTTP {resp.status_code}: {resp.text}"
+
+        dados = resp.json()
+        msg = dados["choices"][0]["message"]
+        texto = msg.get("content") or msg.get("reasoning_content") or ""
+        return True, {
+            "mensagem": str(texto).strip(),
+            "modelo": mod,
+            "tempo_resposta_segundos": duracao,
+            "status": "online"
+        }
+    except Exception as e:
+        return False, str(e)
 
 
 GERADORES = {
@@ -185,7 +285,7 @@ def executar_com_fallback(system, user, parser=None, descricao_log="gerar mensag
     avisos = []
     erro_final = None
 
-    for provedor in ORDEM_PROVEDORES_IA:
+    for provedor in obter_ordem_provedores():
         if not db.obter_config(provedor):
             continue  # provedor não configurado, pula silenciosamente
 
@@ -646,22 +746,93 @@ def classificar_lead_instagram_com_fallback(perfil, nicho_alvo):
 # Analista de negociação (cockpit de conversa)
 # ---------------------------------------------------------------------------
 
-SYSTEM_ANALISTA_CONVERSA = """Você é um consultor de vendas sênior que acompanha negociações reais por WhatsApp entre um freelancer que cria sites e donos de pequenos negócios locais no Brasil. Você lê a conversa até aqui e orienta o próximo passo.
+SYSTEM_ANALISTA_CONVERSA = """Você é o Gabriel, Consultor Comercial Especialista em Vendas Consultivas B2B via WhatsApp no Brasil.
+Seu objetivo é conduzir negociações com inteligência relacional: NUNCA atropele o cliente. Primeiro inicie uma conversa leve, deixe ele responder, nutra o interesse dele com empatia e, SOMENTE quando ele demonstrar interesse na solução, faça o encaminhamento para a reunião.
 
 Responda SEMPRE um único objeto JSON válido, sem markdown e sem texto fora do JSON, com EXATAMENTE estas chaves:
-- "estagio": um de "primeiro_contato" (ainda não houve resposta do lead), "descoberta" (respondeu, você ainda está entendendo a situação dele), "interesse" (demonstrou curiosidade ou pediu detalhes), "objecao" (levantou uma barreira: preço, tempo, "já tenho", "não preciso"), "negociacao" (discutindo preço, prazo ou escopo concreto), "fechamento" (perto de fechar, alinhando detalhes finais), "esfriou" (parou de responder ou perdeu o interesse).
-- "leitura": 1-3 frases interpretando o que o lead realmente quis dizer e o que isso revela sobre a chance de fechar. Seja específico sobre ESTA conversa, não genérico.
-- "objetivo": uma frase curta dizendo qual é o próximo objetivo tático AGORA (ex.: "Entender qual é a real dor dele com o site atual antes de falar de preço").
-- "resposta_sugerida": a próxima mensagem pronta para enviar, na voz de quem vende (primeira pessoa do singular). Curta, natural, fácil de responder. Sem saudação repetida se a conversa já está em andamento.
-- "evitar": array de 1 a 4 strings curtas com o que NÃO dizer agora (ex.: "Falar de preço antes dele demonstrar interesse"). Cada item é uma frase objetiva.
+- "estagio": um de "primeiro_contato", "descoberta", "interesse", "objecao", "negociacao", "fechamento", "esfriou", "desistencia".
+- "leitura": 1-2 frases curtas interpretando o estado e intenção do lead.
+- "objetivo": uma frase curta dizendo qual é o próximo passo prático AGORA.
+- "resposta_sugerida": a mensagem pronta para enviar no WhatsApp (no máximo 1 ou 2 bolhas curtas separadas por "\\n\\n").
+- "evitar": array de 1 a 3 strings curtas com o que NÃO dizer agora.
+- "reuniao_detectada": objeto com chaves:
+    "detectada": boolean (true se o lead concordou, propôs ou confirmou uma data/horário para conversar ou fazer reunião),
+    "data_sugerida": string "YYYY-MM-DD" ou "" (data acordada se detectada),
+    "horario_sugerido": string "HH:MM" ou "" (horário se detectado),
+    "resumo": string curta resumindo a reunião marcada ou ""
 
-Princípios de negociação que você aplica:
-- Nunca empurre. Quem sente pressão trava. O objetivo de cada mensagem é conseguir a PRÓXIMA resposta, não fechar na hora.
-- Objeção não é "não": é pedido de informação. Acolha antes de rebater, e nunca contrarie o lead de frente.
-- Se o lead disse que já tem algo (Instagram, site antigo, sobrinho que mexe), valide o que ele já fez e posicione sua solução como complemento, nunca como substituição do que ele escolheu.
-- Espelhe o nível de formalidade e o tamanho das mensagens do lead. Se ele escreve curto, você escreve curto.
-- Nunca invente dados, preços, prazos, clientes ou resultados que não estejam no contexto fornecido.
-- Se o lead ficou em silêncio, o próximo passo é um follow-up leve que dê saída fácil, nunca cobrança."""
+FUNIL DE VENDAS PROGRESSIVO OBRIGATÓRIO (PASSO A PASSO):
+
+REGRAS CRÍTICAS DE CONTINUIDADE E NATURALIDADE (MUITO IMPORTANTE):
+1. NUNCA REPITA SAUDAÇÕES EM CONVERSA EM ANDAMENTO:
+   - Se já houve qualquer mensagem enviada antes, NUNCA repita 'Olá [Nome], tudo bem?', 'Boa tarde', etc.
+   - Você já cumprimentou no início. Repetir 'tudo bem?' a cada resposta soa robótico e artificial. Vá DIRETO ao ponto!
+2. RESPOSTA DIRETA E COERENTE:
+   - Responda EXATAMENTE o que o lead perguntou. Não faça perguntas genéricas sobre processos como 'Como é hoje o fluxo de atendimento na clínica de vocês?'. Seja direto e objetivo.
+
+1. NO PRIMEIRO CONTATO (estágio "primeiro_contato"):
+   - APRESENTAÇÃO PESSOAL COM AUTORIDADE E OFERTA DE VALOR:
+     Apresente-se obrigatoriamente dizendo que você é o Gabriel da empresa (ex: 'Sou o Gabriel da TimeSaver Tecnologia em Saúde') e cite o que vocês resolvem. Em seguida, pergunte diretamente se eles teriam interesse em conhecer ou avaliar essa tecnologia para a clínica deles.
+   - REGRA DE OURO: JAMAIS jogue agendamento de reunião com dias e horários específicos de cara (ex: 'nesta terça às 10h ou sexta às 14h'). Primeiro pergunte se eles têm interesse em conhecer!
+   - Estrutura obrigatória em 2 bolhas:
+     * Bolha 1: Saudação profissional e educada ("Olá Gabriel, tudo bem?").
+     * Bolha 2: Apresentação pessoal da empresa e solução + pergunta direta de interesse:
+       Exemplo de referência: "Sou o Gabriel da TimeSaver Tecnologia em Saúde. Ajudamos clínicas médicas a eliminar filas na recepção e reduzir glosas de convênios com totens de autoatendimento e check-in automático. Gostaria de saber se vocês teriam interesse em conhecer como funciona essa tecnologia para a clínica de vocês?"
+   - Pare aí e DEIXE O LEAD RESPONDER!
+
+2. QUANDO O CLIENTE PERGUNTA 'COMO FUNCIONA?' OU DEMONSTRA INTERESSE (estágio "interesse"):
+   - GATILHO: Quando o lead pergunta "como funciona?", "como é?", "quanto custa?", "tenho interesse", "me explica melhor", "achei interessante", ele está manifestando INTERESSE REAL na solução!
+   - PAPEL DO ATENDIMENTO / SDR: Você faz o primeiro contato comercial e qualifica o interesse. Quem conduz a apresentação prática e fecha a negociação é o CEO da empresa.
+   - COMO RESPONDER:
+     * Bolha 1: Vá direto ao ponto explicando como funciona e APROVEITE PARA DESTACAR NOSSAS MÉTRICAS POSITIVAS E PROVA SOCIAL (ex: "Funciona assim: o paciente chega na clínica e faz o check-in rápido pelo totem em menos de 1 minuto, liberando o convênio na hora sem filas e sem papelada manual na recepção. Já ajudamos mais de 40 clínicas parceiras a reduzir em até 85% as glosas de convênios e diminuir drasticamente o tempo de espera no balcão.").
+     * Bolha 2: Convide direto propondo marcar com o CEO e perguntando qual dia fica bom (ex: "Se quiser, posso marcar uma reunião rápida de 15 minutos online com o nosso CEO para ele te mostrar na prática. Que dia ficaria bom para você?").
+   - REGRA DE OURO: NUNCA jogue listas engessadas de múltiplos dias e horários (como 'Você prefere terça ou quinta às 10h ou 15h, ou sexta às 14h?'). Pergunte de forma leve e natural: "Que dia ficaria bom para você?" ou "Qual dia ficaria bom para marcar?".
+   - NUNCA pergunte sobre processos internos ou como é o fluxo de atendimento dele! Responda o que ele perguntou, cite as métricas e convide para a reunião com o CEO!
+
+- QUANDO O LEAD SUGERE OU CONFIRMA UM DIA/HORÁRIO (estágio "negociacao" / "fechamento"):
+   - Confirme com simpatia que está deixando pré-agendado com o CEO da empresa (ex: "Perfeito, Gabriel! Vou deixar pré-agendado com o nosso CEO para sexta-feira às 13h. Te envio o link da reunião por aqui."). Marque "reuniao_detectada" com detectada=true.
+
+3. NA DESCOBERTA (estágio "descoberta"):
+   - Apenas se o lead mandou uma resposta neutra sem perguntas e sem interesse explícito (ex: "oi", "boa noite" ou "quem é?").
+   - Responda com simpatia sem repetir saudações excessivas e sem fazer interrogatórios.
+
+4. SE O LEAD RECUSAR ("não quero", "não tenho interesse", "já temos", "não preciso"):
+   - Marque imediatamente "estagio" = "desistencia" e encerre educadamente em 1 frase sem insistir, agradecendo a atenção.
+
+5. QUANTIDADE DE MENSAGENS:
+   - No máximo 1 ou 2 bolhas curtas separadas por "\\n\\n". NUNCA envie mais de 2 bolhas.
+
+6. REGRA CRÍTICA DE PREÇO (quando configurado para 'sem_valor'):
+   - NUNCA cite valores em reais (ex: 'R$ 490', 'R$ X/mês'), preços ou estimativas de custo nas mensagens. O objetivo é qualificar a necessidade e apresentar o plano na reunião após despertar o interesse.
+
+7. IMPORTANTE: Entregue o JSON válido imediatamente sem delongas."""
+
+
+def _obter_tom_guia_vendas():
+    raw = db.obter_config("guia_vendas_ia")
+    if raw:
+        try:
+            return json.loads(raw).get("tom_conversa") or "profissional"
+        except Exception:
+            pass
+    return "profissional"
+
+
+def _instrucoes_tom(tom: str) -> str:
+    if tom == "amigavel":
+        return """- TOM DE COMUNICAÇÃO SELECIONADO: AMIGÁVEL & DESCONTRAÍDO
+  * Estilo: Mais casual, próximo, caloroso e informal. Como um parceiro de negócios que conversa pelo WhatsApp.
+  * Saudações: Apenas na primeira mensagem. Em conversas em andamento, vá direto ao ponto."""
+    elif tom == "formal":
+        return """- TOM DE COMUNICAÇÃO SELECIONADO: FORMAL & CORPORATIVO
+  * Estilo: Sóbrio, institucional e protocolar. Próprio para executivos, advogados e alta diretoria.
+  * Saudações: Apenas na primeira mensagem. Em conversas em andamento, vá direto ao ponto."""
+    else:  # "profissional" (Base Padrão)
+        return """- TOM DE COMUNICAÇÃO SELECIONADO: PROFISSIONAL & CONSULTIVO (BASE PADRÃO)
+  * Estilo: Equilibrado, direto, educado, objetivo e coerente com a conversa.
+  * REGRAS FUNDAMENTAIS:
+    1. Se a conversa já está em andamento, NÃO repita saudações ('Olá [Nome], tudo bem?', 'Boa noite'). Responda diretamente ao que o cliente falou.
+    2. NÃO faça perguntas genéricas de processo como 'Como é o fluxo de atendimento na clínica de vocês?'. Seja direto e resolutivo."""
 
 
 def _bloco_historico_conversa(mensagens):
@@ -683,10 +854,57 @@ def _bloco_historico_conversa(mensagens):
     return "\n".join(linhas)
 
 
+def _bloco_guia_vendas():
+    """Carrega o Guia de Vendas e Estratégia configurado pelo usuário."""
+    raw = db.obter_config("guia_vendas_ia")
+    if not raw:
+        return (
+            "- Serviço: Criação e otimização de soluções para pequenas e médias empresas\n"
+            "- Estratégia de Preço: APENAS ENCAMINHAR PARA REUNIÃO (Não citar valores)\n"
+            "- Meta Final do Funil: Agendar reunião de 15 minutos (SOMENTE após nutrir e o lead demonstrar interesse)\n"
+            "- Tom Selecionado: Profissional (Base Padrão)\n"
+            "- Despedida em caso de recusa: Sem problemas! Agradeço pelo retorno e atenção. Ficamos à disposição caso precise no futuro.\n"
+        )
+    try:
+        g = json.loads(raw)
+        respostas = g.get("respostas_prontas", {})
+        resp_recusa = respostas.get("recusa") or respostas.get("desistencia") or "Sem problemas! Agradeço pelo retorno e pela atenção. Se precisar no futuro, ficamos à disposição."
+        tom = g.get("tom_conversa") or "profissional"
+        estrategia_preco = g.get("estrategia_preco") or "sem_valor"
+
+        if estrategia_preco == "sem_valor":
+            bloco_preco = (
+                "- Estratégia de Preço: APENAS ENCAMINHAR PARA REUNIÃO\n"
+                "  * REGRA CRÍTICA DE PRECIFICAÇÃO: NUNCA mencione valores em reais (ex: 'R$ 490', 'R$ 980', 'R$ X/mês'), preços ou estimativas de custo nas mensagens. O objetivo absoluto é direcionar o cliente para a reunião de 15 minutos onde o valor personalizado será apresentado."
+            )
+        elif estrategia_preco == "margem":
+            bloco_preco = (
+                f"- Estratégia de Preço: MARGEM / FAIXA ESTIMADA\n"
+                f"  * Faixa configurada: {g.get('faixa_preco', '')}. Pode citar como valor aproximado ('a partir de...') apenas se o cliente perguntar diretamente por valores."
+            )
+        else:
+            bloco_preco = (
+                f"- Estratégia de Preço: VALOR ESPECÍFICO EXPLÍCITO\n"
+                f"  * Investimento configurado: {g.get('faixa_preco', '')}."
+            )
+
+        return (
+            f"- Empresa / Especialista: {g.get('empresa_nome', '')}\n"
+            f"- Tom Selecionado: {tom.upper()} (Siga as orientações específicas deste tom)\n"
+            f"{bloco_preco}\n"
+            f"- Serviços Oferecidos: {g.get('servicos_oferecidos', '')}\n"
+            f"- Nicho Alvo: {g.get('nicho_alvo', '')}\n"
+            f"- Principal Dor que Resolvemos: {g.get('dor_principal', '')}\n"
+            f"- Formato de Convite para Demonstração: Pergunte de forma aberta se gostaria de marcar uma conversa rápida de 15 minutos online com o nosso CEO para ele mostrar na prática e pergunte qual dia ficaria bom para marcar (ex: 'Se quiser, posso marcar uma reunião rápida de 15 minutos online com o nosso CEO para ele te mostrar na prática. Que dia ficaria bom para você?'), sem impor lista engessada de múltiplos horários.\n"
+            f"- Resposta de Desistência/Recusa Educada: {resp_recusa}\n"
+        )
+    except Exception:
+        return ""
+
+
 def montar_prompt_analise_conversa(lead, mensagens):
     """Monta o prompt do analista: dados do negócio + ângulo de venda (situação
-    do site) + transcrição da conversa. Reaproveita os mesmos blocos usados
-    pelas copies, para a análise enxergar exatamente o mesmo contexto."""
+    do site) + transcrição da conversa + diretrizes do guia de vendas do usuário."""
     dados_empresa = _bloco_dados_empresa(
         lead.get("nome"),
         lead.get("categoria"),
@@ -697,42 +915,123 @@ def montar_prompt_analise_conversa(lead, mensagens):
         instagram_url=lead.get("instagram_url"),
     )
     contexto_site = _contexto_site(lead.get("site_status"), lead.get("site_problemas"))
-    ultima_do_lead = next(
-        (m["texto"] for m in reversed(mensagens) if m["autor"] == "lead"), None
-    )
-    foco = (
-        f'\nA última mensagem do lead foi: "{ultima_do_lead}"\nSua resposta sugerida precisa endereçar '
-        "exatamente isso.\n"
-        if ultima_do_lead
-        else "\nO lead ainda não respondeu nenhuma mensagem.\n"
-    )
+    guia_vendas = _bloco_guia_vendas()
 
-    return f"""Negócio com quem você está negociando:
+    # Agrupa todas as mensagens recentes consecutivas enviadas pelo lead neste turno (mensagens quebradas em sequência)
+    mensagens_turno_lead = []
+    for m in reversed(mensagens):
+        if m.get("autor") in ("lead", "usuario", "user"):
+            texto_limpo = (m.get("texto") or "").strip()
+            if texto_limpo:
+                mensagens_turno_lead.insert(0, texto_limpo)
+        else:
+            break
+
+    foco = ""
+    if mensagens_turno_lead:
+        bloco_completo_lead = "\n".join(mensagens_turno_lead)
+        foco = (
+            f'\nO lead enviou as seguintes mensagens em sequência nesta rodada:\n"""\n{bloco_completo_lead}\n"""\n'
+            "ATENÇÃO: O lead mandou essas mensagens picadas/quebradas em sequência. "
+            "Sua resposta sugerida precisa responder a TODAS elas de forma única, concisa e coesa em uma só mensagem, "
+            "como se fosse uma resposta fluida a um pensamento completo, sem ignorar nenhuma dúvida levantada.\n"
+        )
+
+    if not mensagens:
+        empresa = "TimeSaver Tecnologia em Saúde"
+        try:
+            g = json.loads(db.obter_config("guia_vendas_ia") or "{}")
+            empresa = g.get("empresa_nome") or empresa
+        except Exception:
+            pass
+
+        foco_etapa = (
+            f"\nESTÁGIO ATUAL: PRIMEIRO CONTATO (ABORDAGEM FRIA INICIAL)\n"
+            f"DIRETRIZ CRÍTICA DE APRESENTAÇÃO E OFERTA:\n"
+            f"- Apresente-se pelo seu nome e empresa ('Sou o Gabriel da {empresa}') e cite o que vocês ajudam a resolver (ex: eliminar filas na recepção e reduzir glosas de convênios com totens de autoatendimento e check-in automático), transmitindo autoridade e proximidade humana.\n"
+            f"- Em seguida, já faça uma abordagem comercial oferecendo a solução: pergunte diretamente se eles teriam interesse em conhecer ou avaliar essa tecnologia para a clínica deles (ex: 'Gostaria de saber se vocês teriam interesse em conhecer como funciona essa tecnologia para a clínica de vocês?').\n"
+            "- NUNCA proponha reunião de 15 minutos nem cite dias/horários agora! Apenas faça essa sondagem de interesse educada e DEIXE O LEAD RESPONDER!\n"
+        )
+    else:
+        foco_etapa = (
+            "\nESTÁGIO E DIRETRIZ CRÍTICA DE RESPOSTA:\n"
+            "- A conversa JÁ ESTÁ EM ANDAMENTO: NUNCA repita saudações como 'Olá [Nome], tudo bem?', 'Boa tarde', etc. Vá DIRETO ao ponto respondendo o que o lead disse!\n"
+            "- NÃO faça perguntas genéricas sobre processos como 'Como é hoje o fluxo de atendimento na clínica de vocês?'. Responda exatamente o que ele perguntou!\n"
+            "- Se o lead perguntou 'como funciona?', 'como é?', 'quanto custa?' ou expressou interesse: "
+            "marque estágio 'interesse'. Explique direto e claramente como o totem e o check-in automático funcionam citando métricas reais de impacto (como redução de até 85% em glosas de convênio e dezenas de clínicas parceiras) na Bolha 1, e na Bolha 2 convide propondo marcar com o CEO: 'Se quiser, posso marcar uma reunião rápida de 15 minutos online com o nosso CEO para ele te mostrar na prática. Que dia ficaria bom para você?'! NUNCA jogue listas engessadas de dias ou horários.\n"
+        )
+
+    data_hoje = datetime.now().strftime("%Y-%m-%d (%A)")
+    tom = _obter_tom_guia_vendas()
+    instrucoes_tom = _instrucoes_tom(tom)
+
+    return f"""Data de hoje: {data_hoje}
+Saudação correta para este horário: {saudacao_por_horario()}
+
+{instrucoes_tom}
+
+Diretrizes e Guia de Vendas da sua empresa:
+{guia_vendas}
+
+Negócio com quem você está negociando:
 {dados_empresa}
 
-Contexto da oferta:
+Contexto técnico da presença digital:
 {contexto_site}
 
 Conversa até agora (ordem cronológica):
 {_bloco_historico_conversa(mensagens)}
 {foco}
-Saudação correta para a hora de agora, caso precise saudar: {saudacao_por_horario()}
-
-Analise a negociação e responda com o JSON especificado."""
+{foco_etapa}
+Analise a negociação seguindo rigorosamente o Funil Progressivo, o Tom Ativo e o Guia de Vendas e responda com o JSON especificado."""
 
 
 def _parsear_analise_conversa(resposta_bruta):
-    resposta_limpa = (
-        resposta_bruta.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    )
-    dados = json.loads(resposta_limpa)
+    import re
+    if not resposta_bruta or not str(resposta_bruta).strip():
+        raise ValueError("Resposta da IA veio vazia.")
+
+    # Remove eventuais blocos de raciocínio interno (<think>...</think>)
+    texto = re.sub(r"<think>.*?</think>", "", str(resposta_bruta), flags=re.DOTALL).strip()
+
+    m = re.search(r"(\{.*\})", texto, re.DOTALL)
+    resposta_limpa = m.group(1).strip() if m else texto.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+
+    try:
+        dados = json.loads(resposta_limpa, strict=False)
+    except Exception:
+        dados = {}
+        for sufixo in ['"}', '"]}', '}']:
+            try:
+                dados = json.loads(resposta_limpa + sufixo, strict=False)
+                break
+            except Exception:
+                pass
+
+        if not dados:
+            m_resp = re.search(r'"(?:resposta_sugerida|resposta|mensagem)"\s*:\s*"([^"]+)"', resposta_limpa, re.DOTALL)
+            m_est = re.search(r'"estagio"\s*:\s*"([^"]+)"', resposta_limpa)
+            m_obj = re.search(r'"objetivo"\s*:\s*"([^"]+)"', resposta_limpa)
+            m_leit = re.search(r'"leitura"\s*:\s*"([^"]+)"', resposta_limpa)
+
+            if m_resp:
+                dados["resposta_sugerida"] = m_resp.group(1).replace('\\"', '"').replace('\\n', '\n')
+            if m_est:
+                dados["estagio"] = m_est.group(1)
+            if m_obj:
+                dados["objetivo"] = m_obj.group(1)
+            if m_leit:
+                dados["leitura"] = m_leit.group(1)
+
+        if not dados:
+            dados = json.loads(resposta_limpa, strict=False)
 
     estagio = str(dados.get("estagio", "")).strip().lower()
     if estagio not in ESTAGIOS_NEGOCIACAO:
         estagio = ESTAGIO_NEGOCIACAO_PADRAO
 
     evitar_bruto = dados.get("evitar") or []
-    if isinstance(evitar_bruto, str):  # modelo às vezes devolve string única
+    if isinstance(evitar_bruto, str):
         evitar_bruto = [evitar_bruto]
     evitar = [
         str(item).strip()[:MAX_CARACTERES_ITEM_EVITAR]
@@ -740,22 +1039,42 @@ def _parsear_analise_conversa(resposta_bruta):
         if str(item).strip()
     ]
 
+    reuniao_raw = dados.get("reuniao_detectada") or {}
+    reuniao_detectada = {
+        "detectada": bool(reuniao_raw.get("detectada")),
+        "data_sugerida": str(reuniao_raw.get("data_sugerida") or ""),
+        "horario_sugerido": str(reuniao_raw.get("horario_sugerido") or ""),
+        "resumo": str(reuniao_raw.get("resumo") or ""),
+    }
+
+    resp_raw = (
+        dados.get("resposta_sugerida")
+        or dados.get("resposta")
+        or dados.get("mensagem")
+        or dados.get("proxima_resposta")
+        or ""
+    )
+    if isinstance(resp_raw, list):
+        resp_texto = "\n\n".join(str(p).strip() for p in resp_raw if str(p).strip())
+    else:
+        resp_texto = str(resp_raw).strip()
+
     return {
         "estagio": estagio,
         "leitura": str(dados.get("leitura", "")).strip()[:MAX_CARACTERES_LEITURA_ANALISE],
         "objetivo": str(dados.get("objetivo", "")).strip()[:MAX_CARACTERES_OBJETIVO_ANALISE],
-        "resposta_sugerida": str(dados.get("resposta_sugerida", "")).strip()[:MAX_CARACTERES_RESPOSTA_SUGERIDA],
+        "resposta_sugerida": resp_texto[:MAX_CARACTERES_RESPOSTA_SUGERIDA],
         "evitar": evitar,
+        "reuniao_detectada": reuniao_detectada,
     }
 
 
 def analisar_conversa_com_fallback(lead, mensagens):
     """Lê o histórico da conversa e devolve (analise, provedor, avisos):
     estágio da negociação, leitura da situação, próximo objetivo, resposta
-    sugerida e o que evitar. Mesmo fallback de provedores das copies, com
-    modo JSON nativo e temperatura baixa (análise precisa ser consistente)."""
+    sugerida, o que evitar e detecção de reuniões acordadas."""
     user = montar_prompt_analise_conversa(lead, mensagens)
-    return executar_com_fallback(
+    analise, provedor, avisos = executar_com_fallback(
         SYSTEM_ANALISTA_CONVERSA,
         user,
         parser=_parsear_analise_conversa,
@@ -763,3 +1082,22 @@ def analisar_conversa_com_fallback(lead, mensagens):
         temperatura=TEMPERATURA_CLASSIFICACAO,
         formato_json=True,
     )
+
+    if analise.get("resposta_sugerida"):
+        import re
+        texto = analise["resposta_sugerida"].strip()
+        # Normaliza apresentação pessoal para sempre ser o Gabriel
+        texto = re.sub(r'\bSou (?:o|a)?\s+[A-Z][a-zà-ú]+\s+da\s+', 'Sou o Gabriel da ', texto)
+        analise["resposta_sugerida"] = texto
+
+    # Regra Crítica de Fluidez Humana: Se a conversa já começou, limpa saudações repetidas e perguntas de fluxo
+    if mensagens and analise.get("resposta_sugerida"):
+        import re
+        texto = analise["resposta_sugerida"].strip()
+        # Remove saudação repetitiva inicial (ex: "Olá Gabriel, tudo bem? ", "Boa noite Gabriel, tudo bem? ")
+        texto = re.sub(r"^(?:Olá|Oi|Boa tarde|Bom dia|Boa noite)[^,\n.?!]*[,!.]\s*(?:[tT]udo bem\??\s*)?", "", texto).strip()
+        # Remove pergunta inquisitória sobre fluxo de atendimento
+        texto = re.sub(r"\n\nComo (?:é|está) hoje o fluxo de atendimento[^\n]*\??", "", texto, flags=re.IGNORECASE).strip()
+        analise["resposta_sugerida"] = texto
+
+    return analise, provedor, avisos

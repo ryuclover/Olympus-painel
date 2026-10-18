@@ -4,27 +4,25 @@ import {
   Search, LayoutDashboard, Users, MessageSquare, GitBranch,
   BookUser, CheckSquare, BarChart2, Zap, FileText, Settings,
   HelpCircle, Headphones, Flame, FileSignature, Terminal, LogOut,
-  MoreHorizontal, ChevronDown
+  MoreHorizontal, ChevronDown, Bot, CalendarCheck
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 
 const MAIN_NAV = [
-  { to: "/", icon: Search, label: "Buscar Leads" },
+  { to: "/", icon: Search, label: "Coleta de Leads" },
+  { to: "/agente", icon: Bot, label: "Agente IA (SDR)" },
+  { to: "/leads", icon: Users, label: "CRM Leads" },
+  { to: "/reunioes", icon: CalendarCheck, label: "Reuniões" },
   { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/leads", icon: Users, label: "Leads" },
-  { to: "/mensagens", icon: MessageSquare, label: "Mensagens" },
   { to: "/contratos", icon: FileSignature, label: "Contratos" },
-  { to: "/automacoes", icon: Zap, label: "Automacoes" },
-  { to: "/logs", icon: Terminal, label: "Logs" },
 ];
 
 const MORE_NAV = [
-  { to: "/diagramas", icon: GitBranch, label: "Diagramas" },
-  { to: "/contatos", icon: BookUser, label: "Contatos" },
+  { to: "/mensagens", icon: MessageSquare, label: "Modelos WhatsApp" },
+  { to: "/automacoes", icon: Zap, label: "Automações" },
+  { to: "/logs", icon: Terminal, label: "Logs do Sistema" },
   { to: "/tarefas", icon: CheckSquare, label: "Tarefas" },
-  { to: "/relatorios", icon: BarChart2, label: "Relatorios" },
-  { to: "/modelos", icon: FileText, label: "Modelos" },
-  { to: "/configuracoes", icon: Settings, label: "Configuracoes" },
+  { to: "/relatorios", icon: BarChart2, label: "Relatórios" },
 ];
 
 export function Sidebar() {

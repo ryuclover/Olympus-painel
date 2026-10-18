@@ -30,6 +30,9 @@ __pycache__/
 *.db
 *.sqlite
 *.sqlite3
+.venv/
+venv/
+.env
 backend/.env
 backend/google-maps-scraper.exe
 

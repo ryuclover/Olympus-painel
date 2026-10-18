@@ -47,6 +47,7 @@ ESTAGIOS_NEGOCIACAO = [
     "negociacao",
     "fechamento",
     "esfriou",
+    "desistencia",
 ]
 ESTAGIO_NEGOCIACAO_PADRAO = "descoberta"
 

@@ -11,6 +11,8 @@ import { ContratoWizard } from './pages/contratos/ContratoWizard'
 import { ContratoView } from './pages/contratos/ContratoView'
 import { Automacoes } from './pages/Automacoes'
 import { Logs } from './pages/Logs'
+import { AgenteIA } from './pages/AgenteIA'
+import { Reunioes } from './pages/Reunioes'
 import './index.css'
 
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -45,8 +47,10 @@ function MainApp() {
       <Routes>
         <Route path="/" element={<AppShell />}>
           <Route index element={<BuscarLeads />} />
-          <Route path="dashboard" element={<Dashboard />} />
+          <Route path="agente" element={<AgenteIA />} />
           <Route path="leads" element={<Leads />} />
+          <Route path="reunioes" element={<Reunioes />} />
+          <Route path="dashboard" element={<Dashboard />} />
           <Route path="mensagens" element={<Mensagens />} />
           <Route path="contratos" element={<ContratosList />} />
           <Route path="contratos/novo" element={<ContratoWizard />} />

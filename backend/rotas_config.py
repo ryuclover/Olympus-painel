@@ -31,10 +31,12 @@ def listar_configuracoes():
     resposta = {}
     for chave in db.CHAVES_CONFIG_VALIDAS:
         valor = db.obter_config(chave)
+        e_secreta = chave in db.CHAVES_SECRETAS
         resposta[chave] = {
             "configurada": bool(valor),
-            "mascarada": mascarar_chave(valor),
-            "link_obter_chave": LINKS_OBTER_CHAVE[chave],
+            "valor": valor if not e_secreta else None,
+            "mascarada": mascarar_chave(valor) if e_secreta else valor,
+            "link_obter_chave": LINKS_OBTER_CHAVE.get(chave),
         }
     return jsonify(resposta)
 
@@ -47,11 +49,31 @@ def atualizar_configuracao():
 
     if chave not in db.CHAVES_CONFIG_VALIDAS:
         return jsonify({"erro": f"chave inválida. Use uma de: {', '.join(db.CHAVES_CONFIG_VALIDAS)}"}), 400
-    if not valor:
+
+    e_secreta = chave in db.CHAVES_SECRETAS
+    if e_secreta and not valor:
         return jsonify({"erro": "informe um valor para a chave de API"}), 400
 
     db.salvar_config(chave, valor)
-    return jsonify({"ok": True, "mascarada": mascarar_chave(valor)})
+    return jsonify({
+        "ok": True,
+        "mascarada": mascarar_chave(valor) if e_secreta else valor,
+        "valor": valor if not e_secreta else None
+    })
+
+
+@bp.route("/api/configuracoes/testar-nvidia", methods=["POST"])
+def testar_nvidia_endpoint():
+    import ia
+    dados = request.json or {}
+    chave = dados.get("chave")
+    modelo = dados.get("modelo")
+
+    ok, resultado = ia.testar_conexao_nvidia(chave_api=chave, modelo=modelo)
+    if not ok:
+        return jsonify({"ok": False, "erro": str(resultado)}), 400
+
+    return jsonify({"ok": True, "dados": resultado})
 
 
 # ---------------------------------------------------------------------------
