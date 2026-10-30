@@ -1,4 +1,5 @@
-$ApiKey = ""
+$ApiKey = $env:DAYTONA_API_KEY
+if (-not $ApiKey) { throw "Configure DAYTONA_API_KEY no ambiente." }
 $SandboxId = "71ac9743-d13f-4832-a49f-718778559147"
 $COMMIT = "ecfbad74d93962fc8ca485d93ab9b4f3d4cb6cf8"
 $IDE_VERSION = "2.5.5"

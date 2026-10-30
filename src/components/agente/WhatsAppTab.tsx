@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import {
   PhoneCall, CheckCircle2, AlertCircle, RefreshCw,
-  Power, Send, Clock, Zap, MessageSquare, Calendar,
-  ShieldCheck, ShieldAlert, Trash2
+  Power, Zap, ShieldCheck, ShieldAlert, Trash2
 } from "lucide-react";
 
 import type { WhatsAppStatus } from "./types";

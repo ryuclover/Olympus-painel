@@ -1,9 +1,7 @@
 import { NavLink, useLocation } from "react-router-dom";
 import { useState } from "react";
 import {
-  Search, LayoutDashboard, Users, MessageSquare, GitBranch,
-  BookUser, CheckSquare, BarChart2, Zap, FileText, Settings,
-  HelpCircle, Headphones, Flame, FileSignature, Terminal, LogOut,
+  Search, LayoutDashboard, Users, MessageSquare, CheckSquare, BarChart2, Zap, HelpCircle, Headphones, Flame, FileSignature, Terminal, LogOut,
   MoreHorizontal, ChevronDown, Bot, CalendarCheck
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";

@@ -19,7 +19,8 @@ param(
     [int]$Minutos = 30
 )
 
-$ApiKey = ""
+$ApiKey = $env:DAYTONA_API_KEY
+if (-not $ApiKey) { throw "Configure DAYTONA_API_KEY no ambiente." }
 $SandboxId = "0bec384d-90e5-4f00-89c1-176e5ddab184"
 $Headers = @{ Authorization = "Bearer $ApiKey" }
 

@@ -41,3 +41,25 @@ release/
 build/
 resources/backend/
 electron/icon.ico
+
+# Private runtime data and deployment credentials
+.env.*
+!.env.example
+!.env.sample
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+backend/uploads/
+backend/data/
+backend/_tmp_scraper/
+backend/*.csv
+backend/queries*.txt
+build_diagnostico/
+diagnostico_dist/
+daytona_*.png
+direct_response.json
+proxy_response.json
+patches.json

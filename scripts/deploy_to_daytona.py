@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from daytona import Daytona, DaytonaConfig
 
-API_KEY = ""
+API_KEY = os.environ["DAYTONA_API_KEY"]
 SANDBOX_ID = "0bec384d-90e5-4f00-89c1-176e5ddab184"
 BASE_DIR = Path(__file__).resolve().parent.parent
 

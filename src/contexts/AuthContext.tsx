@@ -44,10 +44,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const emailTrim = email.trim().toLowerCase()
 
-      // 1. Validação imediata do Superadmin Master / Modo Fallback
 
       // 2. Tenta autenticar na API do Admin Olympus (Supabase / Nuvem) se disponível
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://your-project.supabase.co'
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 
       if (supabaseUrl && supabaseAnonKey) {

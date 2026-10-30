@@ -20,11 +20,10 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess }) => {
     try {
       const emailTrim = email.trim().toLowerCase()
 
-      // 1. Acesso do Super Administrador Master
 
       // 2. Autenticação via Supabase Auth
       if (!supabase) {
-        throw new Error('Supabase não conectado. Utilize as credenciais de superadministrador padrão.')
+        throw new Error('Configure as variáveis do Supabase para autenticar.')
       }
 
       const { data, error } = await supabase.auth.signInWithPassword({

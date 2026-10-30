@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   Send, Sparkles, PhoneCall, CheckCircle2, AlertCircle,
-  Building, User, MessageSquare, Bot
+  Building, User, MessageSquare
 } from "lucide-react";
 
 interface DisparoAlvoCardProps {

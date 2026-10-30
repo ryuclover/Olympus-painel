@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import {
-  MessageSquare, Send, RotateCcw, Smartphone, CheckCircle2,
-  AlertCircle, Calendar, Sparkles, User, Bot, Clock, Zap
+  MessageSquare, Send, RotateCcw, Smartphone, Calendar, Sparkles, User, Bot, Clock, Zap
 } from "lucide-react";
 
 interface MensagemSimulacao {

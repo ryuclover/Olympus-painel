@@ -1,12 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import {
-  Globe, Search, Sparkles, CheckCircle2, AlertCircle,
-  Play, Square, RefreshCw, ExternalLink, MessageSquare,
-  Building2, MapPin, Phone, Copy, Check, ArrowRight,
-  ShieldCheck, HelpCircle, Layers
+  Globe, Sparkles, Play, Square, RefreshCw, ExternalLink, MessageSquare,
+  Building2, MapPin, Phone, Copy, Check, ArrowRight
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import type { IaHunterStatus, IaHunterLead } from "./types";
+import type { IaHunterStatus } from "./types";
 
 interface IaHunterTabProps {
   nichoPadrao?: string;
@@ -21,7 +19,7 @@ const PRESETS_SUGERIDOS = [
   { rotulo: "Escritórios de Advocacia", nicho: "Escritórios de Advocacia e Consultoria Jurídica", cidade: "Rio de Janeiro, RJ" },
 ];
 
-export function IaHunterTab({ nichoPadrao, empresaNome }: IaHunterTabProps) {
+export function IaHunterTab({ nichoPadrao }: IaHunterTabProps) {
   const [nicho, setNicho] = useState(nichoPadrao || "");
   const [localizacao, setLocalizacao] = useState("São Paulo, SP");
   const [criterio, setCriterio] = useState("Empresas com WhatsApp e Instagram ativos para prospecção");
